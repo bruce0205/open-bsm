@@ -4,18 +4,18 @@ import AppKit
 @MainActor
 final class CandidateBar {
     private enum Metrics {
-        static let height: CGFloat = 38
-        static let itemHeight: CGFloat = 32
-        static let itemSpacing: CGFloat = 2
-        static let horizontalInset: CGFloat = 6
+        static let height: CGFloat = 34
+        static let itemHeight: CGFloat = 28
+        static let itemSpacing: CGFloat = 8
+        static let horizontalInset: CGFloat = 8
         static let verticalInset: CGFloat = 3
-        static let minimumItemWidth: CGFloat = 40
+        static let minimumItemWidth: CGFloat = 72
         static let maximumItemWidth: CGFloat = 180
-        static let maximumBarWidth: CGFloat = 720
-        static let pageButtonWidth: CGFloat = 32
-        static let minimumPageLabelWidth: CGFloat = 34
+        static let maximumBarWidth: CGFloat = 900
+        static let pageButtonWidth: CGFloat = 22
+        static let minimumPageLabelWidth: CGFloat = 36
         static let dividerWidth: CGFloat = 1
-        static let dividerInset: CGFloat = 6
+        static let dividerInset: CGFloat = 8
         static let anchorGap: CGFloat = 6
         static let screenInset: CGFloat = 8
     }
@@ -63,14 +63,11 @@ final class CandidateBar {
             accessibilityLabel: "下一頁"
         )
 
-        backgroundView.material = .popover
-        backgroundView.blendingMode = .behindWindow
-        backgroundView.state = .active
         backgroundView.autoresizingMask = [.width, .height]
 
         pageLabel.alignment = .center
-        pageLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
-        pageLabel.textColor = .secondaryLabelColor
+        pageLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
+        pageLabel.textColor = NSColor.white.withAlphaComponent(0.58)
         pageLabel.lineBreakMode = .byClipping
         pageLabel.setAccessibilityLabel("分頁")
 
@@ -89,7 +86,7 @@ final class CandidateBar {
         panel.isReleasedWhenClosed = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.becomesKeyOnlyIfNeeded = true
         panel.ignoresMouseEvents = false
         panel.acceptsMouseMovedEvents = true
@@ -344,9 +341,9 @@ final class CandidateBar {
 
         previousPageButton.frame = NSRect(
             x: x,
-            y: Metrics.verticalInset,
+            y: (Metrics.height - Metrics.pageButtonWidth) / 2,
             width: Metrics.pageButtonWidth,
-            height: Metrics.itemHeight
+            height: Metrics.pageButtonWidth
         )
         x += Metrics.pageButtonWidth
 
@@ -360,9 +357,9 @@ final class CandidateBar {
 
         nextPageButton.frame = NSRect(
             x: x,
-            y: Metrics.verticalInset,
+            y: (Metrics.height - Metrics.pageButtonWidth) / 2,
             width: Metrics.pageButtonWidth,
-            height: Metrics.itemHeight
+            height: Metrics.pageButtonWidth
         )
     }
 
@@ -417,28 +414,23 @@ private final class CandidatePanel: NSPanel {
 }
 
 @MainActor
-private final class CandidateBackgroundView: NSVisualEffectView {
+private final class CandidateBackgroundView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.cornerRadius = 10
+        layer?.backgroundColor = NSColor(
+            srgbRed: 42.0 / 255.0,
+            green: 42.0 / 255.0,
+            blue: 40.0 / 255.0,
+            alpha: 1
+        ).cgColor
+        layer?.cornerRadius = 7
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
-        updateBorderColor()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateBorderColor()
-    }
-
-    private func updateBorderColor() {
-        layer?.borderWidth = 0.5
-        layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.45).cgColor
     }
 }
 
@@ -460,7 +452,7 @@ private final class CandidateDividerView: NSView {
     }
 
     private func updateColor() {
-        layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.65).cgColor
+        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.12).cgColor
     }
 }
 
@@ -493,14 +485,14 @@ private final class CandidateItemView: NSControl {
         super.init(frame: .zero)
 
         wantsLayer = true
-        layer?.cornerRadius = 7
+        layer?.cornerRadius = 6
         layer?.cornerCurve = .continuous
 
-        shortcutLabel.font = .monospacedDigitSystemFont(ofSize: 9, weight: .medium)
-        shortcutLabel.alignment = .center
+        shortcutLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
+        shortcutLabel.alignment = .right
         shortcutLabel.lineBreakMode = .byClipping
 
-        candidateLabel.font = .systemFont(ofSize: 17, weight: .regular)
+        candidateLabel.font = .systemFont(ofSize: 21, weight: .regular)
         candidateLabel.lineBreakMode = .byTruncatingTail
         candidateLabel.maximumNumberOfLines = 1
         shortcutLabel.setAccessibilityElement(false)
@@ -519,7 +511,7 @@ private final class CandidateItemView: NSControl {
     var preferredWidth: CGFloat {
         let shortcutWidth = ceil(shortcutLabel.intrinsicContentSize.width)
         let candidateWidth = ceil(candidateLabel.intrinsicContentSize.width)
-        return shortcutWidth + 4 + candidateWidth + 16
+        return shortcutWidth + 7 + candidateWidth + 16
     }
 
     func configure(candidate: String, isSelected: Bool) {
@@ -543,7 +535,7 @@ private final class CandidateItemView: NSControl {
             width: shortcutWidth,
             height: bounds.height
         )
-        let candidateX = shortcutLabel.frame.maxX + 4
+        let candidateX = shortcutLabel.frame.maxX + 7
         candidateLabel.frame = NSRect(
             x: candidateX,
             y: 0,
@@ -609,24 +601,28 @@ private final class CandidateItemView: NSControl {
     private func updateAppearance() {
         let backgroundColor: NSColor
         if isCandidateSelected {
-            backgroundColor = .controlAccentColor
+            backgroundColor = NSColor(
+                srgbRed: 59.0 / 255.0,
+                green: 143.0 / 255.0,
+                blue: 229.0 / 255.0,
+                alpha: 1
+            )
         } else if isPressed {
-            backgroundColor = NSColor.labelColor.withAlphaComponent(0.14)
+            backgroundColor = NSColor.white.withAlphaComponent(0.12)
         } else if isHovered {
-            backgroundColor = NSColor.labelColor.withAlphaComponent(0.08)
+            backgroundColor = NSColor.white.withAlphaComponent(0.07)
         } else {
             backgroundColor = .clear
         }
 
-        let textColor: NSColor = isCandidateSelected
-            ? .alternateSelectedControlTextColor
-            : .labelColor
         shortcutLabel.textColor = isCandidateSelected
-            ? textColor.withAlphaComponent(0.8)
-            : .secondaryLabelColor
-        candidateLabel.textColor = textColor
+            ? NSColor.white.withAlphaComponent(0.72)
+            : NSColor.white.withAlphaComponent(0.45)
+        candidateLabel.textColor = isCandidateSelected
+            ? .white
+            : NSColor.white.withAlphaComponent(0.82)
         candidateLabel.font = .systemFont(
-            ofSize: 17,
+            ofSize: 21,
             weight: isCandidateSelected ? .medium : .regular
         )
         layer?.backgroundColor = backgroundColor.cgColor
@@ -651,7 +647,7 @@ private final class CandidatePageButton: NSControl {
         super.init(frame: .zero)
 
         wantsLayer = true
-        layer?.cornerRadius = 7
+        layer?.cornerRadius = 5
         layer?.cornerCurve = .continuous
         imageView.imageScaling = .scaleNone
         imageView.setAccessibilityElement(false)
@@ -744,16 +740,16 @@ private final class CandidatePageButton: NSControl {
         if !isEnabled {
             backgroundColor = .clear
         } else if isPressed {
-            backgroundColor = NSColor.labelColor.withAlphaComponent(0.14)
+            backgroundColor = NSColor.white.withAlphaComponent(0.12)
         } else if isHovered {
-            backgroundColor = NSColor.labelColor.withAlphaComponent(0.08)
+            backgroundColor = NSColor.white.withAlphaComponent(0.07)
         } else {
             backgroundColor = .clear
         }
 
         imageView.contentTintColor = isEnabled
-            ? .secondaryLabelColor
-            : .tertiaryLabelColor
+            ? NSColor.white.withAlphaComponent(0.55)
+            : NSColor.white.withAlphaComponent(0.25)
         layer?.backgroundColor = backgroundColor.cgColor
     }
 }

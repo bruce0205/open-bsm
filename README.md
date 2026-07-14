@@ -111,6 +111,10 @@ The package contains two targets:
 - `OpenBSMCore` contains the table loader and platform-independent input engine.
 - `OpenBSMInputMethod` connects the engine to InputMethodKit.
 
+The candidate UI is implemented with a custom `NSPanel` instead of
+`IMKCandidates`, so the candidate bar layout, controls, and visual styling can
+be customized without being limited by the system candidate window.
+
 Open `Package.swift` in Xcode for source-level development. Use `make build` to
 produce the correctly structured `.app` bundle required by macOS input methods.
 
