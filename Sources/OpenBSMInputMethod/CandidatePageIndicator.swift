@@ -480,18 +480,33 @@ private final class CandidatePanel: NSPanel {
 
 @MainActor
 private final class CandidateBackgroundView: NSView {
+    private let blurView = NSVisualEffectView()
+    private let tintView = NSView()
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.backgroundColor = NSColor(
-            srgbRed: 28.0 / 255.0,
-            green: 28.0 / 255.0,
-            blue: 25.0 / 255.0,
-            alpha: 1
-        ).cgColor
         layer?.cornerRadius = 14
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
+
+        blurView.frame = bounds
+        blurView.autoresizingMask = [.width, .height]
+        blurView.blendingMode = .behindWindow
+        blurView.material = .underWindowBackground
+        blurView.state = .active
+        addSubview(blurView)
+
+        tintView.frame = bounds
+        tintView.autoresizingMask = [.width, .height]
+        tintView.wantsLayer = true
+        tintView.layer?.backgroundColor = NSColor(
+            srgbRed: 28.0 / 255.0,
+            green: 28.0 / 255.0,
+            blue: 26.0 / 255.0,
+            alpha: 0.90
+        ).cgColor
+        addSubview(tintView)
     }
 
     required init?(coder: NSCoder) {
