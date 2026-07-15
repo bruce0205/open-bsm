@@ -131,6 +131,16 @@ be customized without being limited by the system candidate window.
 Open `Package.swift` in Xcode for source-level development. Use `make build` to
 produce the correctly structured `.app` bundle required by macOS input methods.
 
+To reload OpenBSM after installing a development build without logging out:
+
+```zsh
+# 先切到 ABC
+make install
+pkill -TERM -x -f "$HOME/Library/Input Methods/OpenBSM.app/Contents/MacOS/OpenBSMInputMethod" 2>/dev/null || true
+
+# 再切回 OpenBSM
+```
+
 ## Privacy
 
 OpenBSM processes input locally. The current implementation has no networking,

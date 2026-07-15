@@ -4,18 +4,17 @@ import AppKit
 @MainActor
 final class CandidateBar {
     private enum Metrics {
-        static let height: CGFloat = 34
-        static let itemHeight: CGFloat = 28
-        static let itemSpacing: CGFloat = 8
+        static let height: CGFloat = 60
+        static let itemHeight: CGFloat = 44
+        static let itemSpacing: CGFloat = 6
         static let horizontalInset: CGFloat = 8
-        static let verticalInset: CGFloat = 3
-        static let minimumItemWidth: CGFloat = 72
+        static let verticalInset: CGFloat = 8
+        static let minimumCompressedItemWidth: CGFloat = 78
         static let maximumItemWidth: CGFloat = 180
         static let maximumBarWidth: CGFloat = 900
-        static let pageButtonWidth: CGFloat = 22
-        static let minimumPageLabelWidth: CGFloat = 36
-        static let dividerWidth: CGFloat = 1
-        static let dividerInset: CGFloat = 8
+        static let pageButtonWidth: CGFloat = 32
+        static let pageNavigationSpacing: CGFloat = 6
+        static let minimumPageLabelWidth: CGFloat = 33
         static let anchorGap: CGFloat = 6
         static let screenInset: CGFloat = 8
         static let reverseLookupWidth: CGFloat = 360
@@ -31,7 +30,6 @@ final class CandidateBar {
     private let panel: CandidatePanel
     private let backgroundView: CandidateBackgroundView
     private let candidateViews: [CandidateItemView]
-    private let dividerView: CandidateDividerView
     private let previousPageButton: CandidatePageButton
     private let pageLabel: NSTextField
     private let nextPageButton: CandidatePageButton
@@ -57,7 +55,6 @@ final class CandidateBar {
         )
         let backgroundView = CandidateBackgroundView(frame: .zero)
         let candidateViews = (0..<9).map(CandidateItemView.init(index:))
-        let dividerView = CandidateDividerView(frame: .zero)
         let previousPageButton = CandidatePageButton(
             symbolName: "chevron.left",
             accessibilityLabel: "上一頁"
@@ -80,9 +77,8 @@ final class CandidateBar {
         for candidateView in candidateViews {
             backgroundView.addSubview(candidateView)
         }
-        backgroundView.addSubview(dividerView)
-        backgroundView.addSubview(previousPageButton)
         backgroundView.addSubview(pageLabel)
+        backgroundView.addSubview(previousPageButton)
         backgroundView.addSubview(nextPageButton)
         backgroundView.addSubview(reverseLookupView)
         reverseLookupView.isHidden = true
@@ -110,7 +106,6 @@ final class CandidateBar {
         self.panel = panel
         self.backgroundView = backgroundView
         self.candidateViews = candidateViews
-        self.dividerView = dividerView
         self.previousPageButton = previousPageButton
         self.pageLabel = pageLabel
         self.nextPageButton = nextPageButton
@@ -170,13 +165,12 @@ final class CandidateBar {
             }
         }
 
-        dividerView.isHidden = !displaysPagination
         previousPageButton.isHidden = !displaysPagination
         pageLabel.isHidden = !displaysPagination
         nextPageButton.isHidden = !displaysPagination
 
         if displaysPagination {
-            pageLabel.stringValue = "\(currentPage) / \(totalPages)"
+            pageLabel.stringValue = "\(currentPage)/\(totalPages)"
             pageLabel.setAccessibilityValue("第 \(currentPage) 頁，共 \(totalPages) 頁")
             previousPageButton.isEnabled = currentPage > 1
             nextPageButton.isEnabled = currentPage < totalPages
@@ -221,7 +215,6 @@ final class CandidateBar {
         for candidateView in candidateViews {
             candidateView.isHidden = true
         }
-        dividerView.isHidden = true
         previousPageButton.isHidden = true
         pageLabel.isHidden = true
         nextPageButton.isHidden = true
@@ -321,27 +314,21 @@ final class CandidateBar {
 
         let visibleCandidateViews = candidateViews.filter { !$0.isHidden }
         var itemWidths = visibleCandidateViews.map {
-            min(
-                max($0.preferredWidth, Metrics.minimumItemWidth),
-                Metrics.maximumItemWidth
-            )
+            min($0.preferredWidth, Metrics.maximumItemWidth)
         }
         let itemSpacing = Metrics.itemSpacing * CGFloat(max(itemWidths.count - 1, 0))
 
         let pageLabelWidth: CGFloat
         let paginationWidth: CGFloat
         if displaysPagination {
-            let maximumPageText = "\(totalPages) / \(totalPages)" as NSString
+            let maximumPageText = "\(totalPages)/\(totalPages)" as NSString
             let textWidth = ceil(
                 maximumPageText.size(withAttributes: [.font: pageLabel.font!]).width
             )
             pageLabelWidth = max(Metrics.minimumPageLabelWidth, textWidth + 8)
-            paginationWidth = Metrics.dividerInset
-                + Metrics.dividerWidth
-                + Metrics.dividerInset
-                + Metrics.pageButtonWidth
+            paginationWidth = Metrics.pageNavigationSpacing
                 + pageLabelWidth
-                + Metrics.pageButtonWidth
+                + Metrics.pageButtonWidth * 2
         } else {
             pageLabelWidth = 0
             paginationWidth = 0
@@ -359,21 +346,24 @@ final class CandidateBar {
         let naturalItemWidth = itemWidths.reduce(0, +)
 
         if naturalItemWidth > availableItemWidth, !itemWidths.isEmpty {
-            let minimumItemWidth = min(
-                Metrics.minimumItemWidth,
+            let maximumMinimumItemWidth = min(
+                Metrics.minimumCompressedItemWidth,
                 availableItemWidth / CGFloat(itemWidths.count)
             )
-            let minimumTotal = minimumItemWidth * CGFloat(itemWidths.count)
-            let flexibleTotal = itemWidths.reduce(0) {
-                $0 + max($1 - minimumItemWidth, 0)
+            let minimumItemWidths = itemWidths.map {
+                min($0, maximumMinimumItemWidth)
+            }
+            let minimumTotal = minimumItemWidths.reduce(0, +)
+            let flexibleTotal = zip(itemWidths, minimumItemWidths).reduce(0) {
+                $0 + $1.0 - $1.1
             }
             let availableFlexibleWidth = max(availableItemWidth - minimumTotal, 0)
             let scale = flexibleTotal > 0
                 ? min(availableFlexibleWidth / flexibleTotal, 1)
                 : 0
 
-            itemWidths = itemWidths.map {
-                minimumItemWidth + max($0 - minimumItemWidth, 0) * scale
+            itemWidths = zip(itemWidths, minimumItemWidths).map {
+                $0.1 + ($0.0 - $0.1) * scale
             }
         }
 
@@ -411,15 +401,16 @@ final class CandidateBar {
         }
 
         guard displaysPagination else { return }
+        x += Metrics.pageNavigationSpacing
 
-        x += Metrics.dividerInset
-        dividerView.frame = NSRect(
+        let pageLabelHeight = ceil(pageLabel.intrinsicContentSize.height)
+        pageLabel.frame = NSRect(
             x: x,
-            y: 8,
-            width: Metrics.dividerWidth,
-            height: Metrics.height - 16
+            y: (Metrics.height - pageLabelHeight) / 2,
+            width: layout.pageLabelWidth,
+            height: pageLabelHeight
         )
-        x += Metrics.dividerWidth + Metrics.dividerInset
+        x += layout.pageLabelWidth
 
         previousPageButton.frame = NSRect(
             x: x,
@@ -428,14 +419,6 @@ final class CandidateBar {
             height: Metrics.pageButtonWidth
         )
         x += Metrics.pageButtonWidth
-
-        pageLabel.frame = NSRect(
-            x: x,
-            y: Metrics.verticalInset,
-            width: layout.pageLabelWidth,
-            height: Metrics.itemHeight
-        )
-        x += layout.pageLabelWidth
 
         nextPageButton.frame = NSRect(
             x: x,
@@ -501,12 +484,12 @@ private final class CandidateBackgroundView: NSView {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.backgroundColor = NSColor(
-            srgbRed: 42.0 / 255.0,
-            green: 42.0 / 255.0,
-            blue: 40.0 / 255.0,
+            srgbRed: 28.0 / 255.0,
+            green: 28.0 / 255.0,
+            blue: 25.0 / 255.0,
             alpha: 1
         ).cgColor
-        layer?.cornerRadius = 7
+        layer?.cornerRadius = 14
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
     }
@@ -517,30 +500,21 @@ private final class CandidateBackgroundView: NSView {
 }
 
 @MainActor
-private final class CandidateDividerView: NSView {
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        updateColor()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateColor()
-    }
-
-    private func updateColor() {
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.12).cgColor
-    }
+private final class CandidateTextField: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 @MainActor
-private final class CandidateTextField: NSTextField {
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+private final class VerticallyCenteredTextFieldCell: NSTextFieldCell {
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        var drawingRect = super.drawingRect(forBounds: rect)
+        let textHeight = cellSize(forBounds: drawingRect).height
+        guard textHeight < drawingRect.height else { return drawingRect }
+
+        drawingRect.origin.y += (drawingRect.height - textHeight) / 2
+        drawingRect.size.height = textHeight
+        return drawingRect
+    }
 }
 
 @MainActor
@@ -550,6 +524,12 @@ private final class CandidateImageView: NSImageView {
 
 @MainActor
 private final class CandidateItemView: NSControl {
+    private enum Metrics {
+        static let horizontalInset: CGFloat = 14
+        static let shortcutSize: CGFloat = 18
+        static let contentSpacing: CGFloat = 7
+    }
+
     private let shortcutLabel: CandidateTextField
     private let candidateLabel: CandidateTextField
     private var trackingAreaReference: NSTrackingArea?
@@ -566,15 +546,26 @@ private final class CandidateItemView: NSControl {
         candidateLabel = CandidateTextField(labelWithString: "")
         super.init(frame: .zero)
 
+        shortcutLabel.cell = VerticallyCenteredTextFieldCell(
+            textCell: shortcutLabel.stringValue
+        )
+        candidateLabel.cell = VerticallyCenteredTextFieldCell(
+            textCell: candidateLabel.stringValue
+        )
+
         wantsLayer = true
-        layer?.cornerRadius = 6
+        layer?.cornerRadius = 8
         layer?.cornerCurve = .continuous
 
         shortcutLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
-        shortcutLabel.alignment = .right
+        shortcutLabel.alignment = .center
         shortcutLabel.lineBreakMode = .byClipping
+        shortcutLabel.wantsLayer = true
+        shortcutLabel.layer?.cornerRadius = Metrics.shortcutSize / 2
+        shortcutLabel.layer?.cornerCurve = .continuous
+        shortcutLabel.layer?.masksToBounds = true
 
-        candidateLabel.font = .systemFont(ofSize: 21, weight: .regular)
+        candidateLabel.font = .systemFont(ofSize: 21, weight: .medium)
         candidateLabel.lineBreakMode = .byTruncatingTail
         candidateLabel.maximumNumberOfLines = 1
         shortcutLabel.setAccessibilityElement(false)
@@ -591,9 +582,14 @@ private final class CandidateItemView: NSControl {
     }
 
     var preferredWidth: CGFloat {
-        let shortcutWidth = ceil(shortcutLabel.intrinsicContentSize.width)
-        let candidateWidth = ceil(candidateLabel.intrinsicContentSize.width)
-        return shortcutWidth + 7 + candidateWidth + 16
+        let candidateWidth = ceil(
+            candidateLabel.cell?.cellSize.width
+                ?? candidateLabel.intrinsicContentSize.width
+        )
+        return Metrics.horizontalInset * 2
+            + Metrics.shortcutSize
+            + Metrics.contentSpacing
+            + candidateWidth
     }
 
     func configure(candidate: String, isSelected: Bool) {
@@ -610,18 +606,17 @@ private final class CandidateItemView: NSControl {
     override func layout() {
         super.layout()
 
-        let shortcutWidth = ceil(shortcutLabel.intrinsicContentSize.width)
         shortcutLabel.frame = NSRect(
-            x: 8,
-            y: 0,
-            width: shortcutWidth,
-            height: bounds.height
+            x: Metrics.horizontalInset,
+            y: (bounds.height - Metrics.shortcutSize) / 2,
+            width: Metrics.shortcutSize,
+            height: Metrics.shortcutSize
         )
-        let candidateX = shortcutLabel.frame.maxX + 7
+        let candidateX = shortcutLabel.frame.maxX + Metrics.contentSpacing
         candidateLabel.frame = NSRect(
             x: candidateX,
             y: 0,
-            width: max(bounds.width - candidateX - 8, 0),
+            width: max(bounds.width - candidateX - Metrics.horizontalInset, 0),
             height: bounds.height
         )
     }
@@ -684,9 +679,9 @@ private final class CandidateItemView: NSControl {
         let backgroundColor: NSColor
         if isCandidateSelected {
             backgroundColor = NSColor(
-                srgbRed: 59.0 / 255.0,
-                green: 143.0 / 255.0,
-                blue: 229.0 / 255.0,
+                srgbRed: 55.0 / 255.0,
+                green: 138.0 / 255.0,
+                blue: 221.0 / 255.0,
                 alpha: 1
             )
         } else if isPressed {
@@ -698,15 +693,14 @@ private final class CandidateItemView: NSControl {
         }
 
         shortcutLabel.textColor = isCandidateSelected
-            ? NSColor.white.withAlphaComponent(0.72)
-            : NSColor.white.withAlphaComponent(0.45)
+            ? NSColor.white.withAlphaComponent(0.92)
+            : NSColor.white.withAlphaComponent(0.68)
+        shortcutLabel.layer?.backgroundColor = NSColor.white.withAlphaComponent(
+            isCandidateSelected ? 0.22 : 0.10
+        ).cgColor
         candidateLabel.textColor = isCandidateSelected
             ? .white
-            : NSColor.white.withAlphaComponent(0.82)
-        candidateLabel.font = .systemFont(
-            ofSize: 21,
-            weight: isCandidateSelected ? .medium : .regular
-        )
+            : NSColor.white.withAlphaComponent(0.76)
         layer?.backgroundColor = backgroundColor.cgColor
     }
 }
