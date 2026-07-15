@@ -135,8 +135,7 @@ To reload OpenBSM after installing a development build without logging out:
 
 ```zsh
 # 先切到 ABC
-make install
-pkill -TERM -x -f "$HOME/Library/Input Methods/OpenBSM.app/Contents/MacOS/OpenBSMInputMethod" 2>/dev/null || true
+make reload
 
 # 再切回 OpenBSM
 ```

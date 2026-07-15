@@ -4,8 +4,8 @@ import AppKit
 @MainActor
 final class CandidateBar {
     private enum Metrics {
-        static let height: CGFloat = 60
-        static let itemHeight: CGFloat = 44
+        static let height: CGFloat = 52
+        static let itemHeight: CGFloat = 36
         static let itemSpacing: CGFloat = 6
         static let horizontalInset: CGFloat = 8
         static let verticalInset: CGFloat = 8
