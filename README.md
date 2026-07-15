@@ -27,6 +27,7 @@ provenance notice at the start of `Resources/bsm.txt`.
 - `Shift + Space` to switch between Chinese and direct English input.
 - Basic Traditional Chinese punctuation, including committing active composition first;
   punctuation roots can also start symbol codes such as `.s`.
+- Root-code reverse lookup for selected text with `Option + Shift + R`.
 - Input menu item for switching Chinese and English modes.
 - Unit tests for table parsing and the input state machine.
 - Local build and per-user installation scripts.
@@ -43,7 +44,6 @@ provenance notice at the start of `Resources/bsm.txt`.
 
 - User-defined phrases and shortcut codes.
 - Candidate frequency learning.
-- Root-code reverse lookup.
 - Wildcard and fuzzy lookup.
 - Full-width and half-width modes.
 - Extended punctuation and symbol input.
@@ -79,6 +79,19 @@ Edit**, click **+**, and add **OpenBSM** under Traditional Chinese.
 
 The development build uses ad-hoc code signing. Release builds need a Developer
 ID certificate and Apple notarization.
+
+## Root-code reverse lookup
+
+Select exactly one character in the current app, then press
+`Option + Shift + R`. The fixed-width lookup shows one root code at a time, with
+each root rendered as a mini keycap. Press `Option + Shift + R` again to cycle
+through alternate codes, or click the previous and next page controls. Press
+`Escape` to close the lookup. Selecting zero or multiple characters does not
+open the lookup, and arrow keys remain available to the current app.
+
+The lookup requires the current app to expose its selected text through
+InputMethodKit. If the app does not support document access, OpenBSM leaves the
+selection unchanged and does not show the lookup.
 
 ## Code table format
 

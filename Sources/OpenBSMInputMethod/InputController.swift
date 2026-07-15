@@ -4,7 +4,11 @@ import OpenBSMCore
 
 @objc(OpenBSMInputController)
 final class InputController: IMKInputController, @unchecked Sendable {
+    private let codeTable: CodeTable
     private var engine: InputEngine
+    private var reverseLookupCharacter: String?
+    private var reverseLookupCodes: [String] = []
+    private var reverseLookupCodeIndex = 0
     private var candidateBar: CandidateBar { sharedCandidateBar }
 
     override init!(server: IMKServer!, delegate: Any!, client inputClient: Any!) {
@@ -15,6 +19,7 @@ final class InputController: IMKInputController, @unchecked Sendable {
         } else {
             table = CodeTable(entries: [:])
         }
+        codeTable = table
         engine = InputEngine(codeTable: table)
         super.init(server: server, delegate: delegate, client: inputClient)
     }
@@ -23,6 +28,21 @@ final class InputController: IMKInputController, @unchecked Sendable {
         guard event.type == .keyDown else { return false }
 
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if isReverseLookupShortcut(event, modifiers: modifiers) {
+            showReverseLookup(client: sender)
+            return true
+        }
+
+        if reverseLookupCharacter != nil {
+            switch event.keyCode {
+            case 53:
+                hideCandidates()
+                return true
+            default:
+                hideCandidates()
+            }
+        }
+
         if modifiers.contains(.command) || modifiers.contains(.control) || modifiers.contains(.option) {
             return false
         }
@@ -165,6 +185,90 @@ final class InputController: IMKInputController, @unchecked Sendable {
         return number - 1
     }
 
+    private func isReverseLookupShortcut(
+        _ event: NSEvent,
+        modifiers: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard event.keyCode == 15 else { return false }
+        let shortcutModifiers = modifiers.intersection([
+            .command,
+            .control,
+            .option,
+            .shift,
+        ])
+        return shortcutModifiers == [.option, .shift]
+    }
+
+    private func showReverseLookup(client sender: Any?) {
+        guard engine.buffer.isEmpty,
+              let inputClient = sender as? (any IMKTextInput) else {
+            return
+        }
+
+        let selectionRange = inputClient.selectedRange()
+        guard selectionRange.location != NSNotFound,
+              selectionRange.length != NSNotFound,
+              selectionRange.length > 0,
+              let selectedText = inputClient
+                .attributedSubstring(from: selectionRange)?
+                .string else {
+            hideCandidates()
+            return
+        }
+
+        guard selectedText.count == 1,
+              let selectedCharacter = selectedText.first,
+              !selectedCharacter.isWhitespace else {
+            hideCandidates()
+            return
+        }
+
+        let character = String(selectedCharacter)
+        if reverseLookupCharacter == character {
+            moveReverseLookup(by: 1)
+            return
+        }
+
+        hideCandidates()
+        reverseLookupCharacter = character
+        reverseLookupCodes = codeTable.codes(for: character)
+        reverseLookupCodeIndex = 0
+        updateReverseLookup()
+    }
+
+    private func moveReverseLookup(by offset: Int) {
+        guard !reverseLookupCodes.isEmpty else { return }
+        let count = reverseLookupCodes.count
+        let targetIndex = (reverseLookupCodeIndex + offset) % count
+        reverseLookupCodeIndex = targetIndex >= 0 ? targetIndex : targetIndex + count
+        updateReverseLookup()
+    }
+
+    private func updateReverseLookup() {
+        guard let reverseLookupCharacter,
+              let inputClient = client() else {
+            hideCandidates()
+            return
+        }
+
+        let code = reverseLookupCodes.indices.contains(reverseLookupCodeIndex)
+            ? reverseLookupCodes[reverseLookupCodeIndex]
+            : nil
+        MainActor.assumeIsolated {
+            candidateBar.showReverseLookup(
+                owner: self,
+                character: reverseLookupCharacter,
+                code: code,
+                currentPage: code == nil ? 0 : reverseLookupCodeIndex + 1,
+                totalPages: reverseLookupCodes.count,
+                client: inputClient,
+                onPageChanged: { [weak self] offset in
+                    self?.moveReverseLookup(by: offset)
+                }
+            )
+        }
+    }
+
     private func updateCandidates() {
         let candidates = engine.visibleCandidates
         let selectedCandidateIndex = engine.selectedCandidateIndexInPage
@@ -206,6 +310,9 @@ final class InputController: IMKInputController, @unchecked Sendable {
     }
 
     private func hideCandidates() {
+        reverseLookupCharacter = nil
+        reverseLookupCodes = []
+        reverseLookupCodeIndex = 0
         MainActor.assumeIsolated {
             candidateBar.hide(owner: self)
         }

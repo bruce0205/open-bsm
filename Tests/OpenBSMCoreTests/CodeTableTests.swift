@@ -25,3 +25,15 @@ import Testing
     #expect(table.count == 1)
     #expect(Set(table.candidates(for: "a")) == ["日", "月"])
 }
+
+@Test func reverseLookupReturnsNormalizedCodesInStableOrder() {
+    let table = CodeTable(entries: [
+        "DUE": ["明"],
+        "a": ["日", "明"],
+        "due": ["明"],
+    ])
+
+    #expect(table.codes(for: "明") == ["a", "due"])
+    #expect(table.codes(for: "日") == ["a"])
+    #expect(table.codes(for: "月").isEmpty)
+}

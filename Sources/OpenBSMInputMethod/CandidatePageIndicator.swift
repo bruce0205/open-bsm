@@ -18,6 +18,8 @@ final class CandidateBar {
         static let dividerInset: CGFloat = 8
         static let anchorGap: CGFloat = 6
         static let screenInset: CGFloat = 8
+        static let reverseLookupWidth: CGFloat = 360
+        static let reverseLookupHeight: CGFloat = 64
     }
 
     private struct Layout {
@@ -33,6 +35,7 @@ final class CandidateBar {
     private let previousPageButton: CandidatePageButton
     private let pageLabel: NSTextField
     private let nextPageButton: CandidatePageButton
+    private let reverseLookupView: ReverseLookupView
 
     private weak var owner: AnyObject?
     private var inputClient: (any IMKTextInput)?
@@ -40,6 +43,8 @@ final class CandidateBar {
     private var onPageChanged: ((Int) -> Void)?
     private var currentPage = 0
     private var totalPages = 0
+    private var displaysPagination = false
+    private var isShowingReverseLookup = false
     private var lastAnchor: (rect: NSRect, isHorizontal: Bool)?
     private var revision = 0
 
@@ -62,6 +67,7 @@ final class CandidateBar {
             symbolName: "chevron.right",
             accessibilityLabel: "下一頁"
         )
+        let reverseLookupView = ReverseLookupView(frame: .zero)
 
         backgroundView.autoresizingMask = [.width, .height]
 
@@ -78,6 +84,8 @@ final class CandidateBar {
         backgroundView.addSubview(previousPageButton)
         backgroundView.addSubview(pageLabel)
         backgroundView.addSubview(nextPageButton)
+        backgroundView.addSubview(reverseLookupView)
+        reverseLookupView.isHidden = true
 
         panel.contentView = backgroundView
         panel.isFloatingPanel = true
@@ -106,6 +114,7 @@ final class CandidateBar {
         self.previousPageButton = previousPageButton
         self.pageLabel = pageLabel
         self.nextPageButton = nextPageButton
+        self.reverseLookupView = reverseLookupView
 
         for candidateView in candidateViews {
             candidateView.onPress = { [weak self] index in
@@ -117,6 +126,9 @@ final class CandidateBar {
         }
         nextPageButton.onPress = { [weak self] in
             self?.onPageChanged?(1)
+        }
+        reverseLookupView.onPageChanged = { [weak self] offset in
+            self?.onPageChanged?(offset)
         }
     }
 
@@ -141,6 +153,9 @@ final class CandidateBar {
         self.onPageChanged = onPageChanged
         self.currentPage = currentPage
         self.totalPages = totalPages
+        displaysPagination = totalPages > 1
+        isShowingReverseLookup = false
+        reverseLookupView.isHidden = true
         revision += 1
 
         for (index, candidateView) in candidateViews.enumerated() {
@@ -155,13 +170,12 @@ final class CandidateBar {
             }
         }
 
-        let showsPagination = totalPages > 1
-        dividerView.isHidden = !showsPagination
-        previousPageButton.isHidden = !showsPagination
-        pageLabel.isHidden = !showsPagination
-        nextPageButton.isHidden = !showsPagination
+        dividerView.isHidden = !displaysPagination
+        previousPageButton.isHidden = !displaysPagination
+        pageLabel.isHidden = !displaysPagination
+        nextPageButton.isHidden = !displaysPagination
 
-        if showsPagination {
+        if displaysPagination {
             pageLabel.stringValue = "\(currentPage) / \(totalPages)"
             pageLabel.setAccessibilityValue("第 \(currentPage) 頁，共 \(totalPages) 頁")
             previousPageButton.isEnabled = currentPage > 1
@@ -169,6 +183,55 @@ final class CandidateBar {
             previousPageButton.toolTip = "上一頁（Fn + ↑）"
             nextPageButton.toolTip = "下一頁（Fn + ↓）"
         }
+
+        synchronizeFrame()
+
+        let expectedRevision = revision
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, self.revision == expectedRevision else { return }
+            self.synchronizeFrame()
+        }
+    }
+
+    func showReverseLookup(
+        owner: AnyObject,
+        character: String,
+        code: String?,
+        currentPage: Int,
+        totalPages: Int,
+        client: any IMKTextInput,
+        onPageChanged: @escaping (Int) -> Void
+    ) {
+        if self.owner !== owner {
+            lastAnchor = nil
+            panel.orderOut(nil)
+        }
+
+        self.owner = owner
+        inputClient = client
+        onCandidateSelected = nil
+        self.onPageChanged = onPageChanged
+        self.currentPage = currentPage
+        self.totalPages = totalPages
+        displaysPagination = false
+        isShowingReverseLookup = true
+        revision += 1
+
+        for candidateView in candidateViews {
+            candidateView.isHidden = true
+        }
+        dividerView.isHidden = true
+        previousPageButton.isHidden = true
+        pageLabel.isHidden = true
+        nextPageButton.isHidden = true
+        reverseLookupView.configure(
+            character: character,
+            code: code,
+            currentPage: currentPage,
+            totalPages: totalPages
+        )
+        reverseLookupView.isHidden = false
 
         synchronizeFrame()
 
@@ -190,6 +253,9 @@ final class CandidateBar {
         onPageChanged = nil
         currentPage = 0
         totalPages = 0
+        displaysPagination = false
+        isShowingReverseLookup = false
+        reverseLookupView.isHidden = true
         lastAnchor = nil
         panel.orderOut(nil)
     }
@@ -242,6 +308,17 @@ final class CandidateBar {
     }
 
     private func makeLayout(for screen: NSScreen) -> Layout {
+        if isShowingReverseLookup {
+            return Layout(
+                size: NSSize(
+                    width: Metrics.reverseLookupWidth,
+                    height: Metrics.reverseLookupHeight
+                ),
+                itemWidths: [],
+                pageLabelWidth: 0
+            )
+        }
+
         let visibleCandidateViews = candidateViews.filter { !$0.isHidden }
         var itemWidths = visibleCandidateViews.map {
             min(
@@ -253,7 +330,7 @@ final class CandidateBar {
 
         let pageLabelWidth: CGFloat
         let paginationWidth: CGFloat
-        if totalPages > 1 {
+        if displaysPagination {
             let maximumPageText = "\(totalPages) / \(totalPages)" as NSString
             let textWidth = ceil(
                 maximumPageText.size(withAttributes: [.font: pageLabel.font!]).width
@@ -312,6 +389,11 @@ final class CandidateBar {
     }
 
     private func layoutContent(using layout: Layout) {
+        if isShowingReverseLookup {
+            reverseLookupView.frame = backgroundView.bounds
+            return
+        }
+
         var x = Metrics.horizontalInset
         let visibleCandidateViews = candidateViews.filter { !$0.isHidden }
 
@@ -328,7 +410,7 @@ final class CandidateBar {
             }
         }
 
-        guard totalPages > 1 else { return }
+        guard displaysPagination else { return }
 
         x += Metrics.dividerInset
         dividerView.frame = NSRect(
@@ -626,6 +708,282 @@ private final class CandidateItemView: NSControl {
             weight: isCandidateSelected ? .medium : .regular
         )
         layer?.backgroundColor = backgroundColor.cgColor
+    }
+}
+
+@MainActor
+private final class ReverseLookupView: NSView {
+    private enum Metrics {
+        static let horizontalInset: CGFloat = 12
+        static let characterWidth: CGFloat = 64
+        static let itemHeight: CGFloat = 30
+        static let contentSpacing: CGFloat = 14
+        static let keycapSize: CGFloat = 28
+        static let keycapSpacing: CGFloat = 6
+        static let navigationButtonWidth: CGFloat = 22
+        static let pageLabelWidth: CGFloat = 44
+        static let navigationWidth: CGFloat = navigationButtonWidth * 2 + pageLabelWidth
+        static let navigationHeight: CGFloat = 22
+    }
+
+    private let characterView: ReverseLookupCharacterView
+    private let noCodeLabel: CandidateTextField
+    private let previousCodeButton: CandidatePageButton
+    private let pageLabel: CandidateTextField
+    private let nextCodeButton: CandidatePageButton
+    private var keycapViews: [ReverseLookupKeycapView] = []
+
+    var onPageChanged: ((Int) -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        characterView = ReverseLookupCharacterView(frame: .zero)
+        noCodeLabel = CandidateTextField(labelWithString: "無拆碼")
+        previousCodeButton = CandidatePageButton(
+            symbolName: "chevron.left",
+            accessibilityLabel: "上一組拆碼"
+        )
+        pageLabel = CandidateTextField(labelWithString: "")
+        nextCodeButton = CandidatePageButton(
+            symbolName: "chevron.right",
+            accessibilityLabel: "下一組拆碼"
+        )
+        super.init(frame: frameRect)
+
+        noCodeLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        noCodeLabel.textColor = NSColor.white.withAlphaComponent(0.52)
+        noCodeLabel.lineBreakMode = .byClipping
+
+        pageLabel.alignment = .center
+        pageLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        pageLabel.textColor = NSColor.white.withAlphaComponent(0.62)
+        pageLabel.lineBreakMode = .byClipping
+        pageLabel.setAccessibilityLabel("拆碼分頁")
+
+        previousCodeButton.toolTip = "上一組拆碼"
+        nextCodeButton.toolTip = "下一組拆碼"
+        previousCodeButton.onPress = { [weak self] in
+            self?.onPageChanged?(-1)
+        }
+        nextCodeButton.onPress = { [weak self] in
+            self?.onPageChanged?(1)
+        }
+
+        addSubview(characterView)
+        addSubview(noCodeLabel)
+        addSubview(previousCodeButton)
+        addSubview(pageLabel)
+        addSubview(nextCodeButton)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("字根反查")
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(
+        character: String,
+        code: String?,
+        currentPage: Int,
+        totalPages: Int
+    ) {
+        characterView.configure(character: character)
+
+        for keycapView in keycapViews {
+            keycapView.removeFromSuperview()
+        }
+        keycapViews = code?.map {
+            let keycapView = ReverseLookupKeycapView(character: String($0))
+            addSubview(keycapView)
+            return keycapView
+        } ?? []
+
+        noCodeLabel.isHidden = code != nil
+        pageLabel.stringValue = totalPages > 0
+            ? "\(currentPage) / \(totalPages)"
+            : "—"
+        pageLabel.setAccessibilityValue(
+            totalPages > 0
+                ? "第 \(currentPage) 組，共 \(totalPages) 組"
+                : "沒有拆碼"
+        )
+        previousCodeButton.isEnabled = totalPages > 1
+        nextCodeButton.isEnabled = totalPages > 1
+        setAccessibilityValue(
+            code.map {
+                "\(character)，拆碼 \($0)，第 \(currentPage) 組，共 \(totalPages) 組"
+            }
+                ?? "\(character)，沒有拆碼"
+        )
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+
+        let itemY = (bounds.height - Metrics.itemHeight) / 2
+        characterView.frame = NSRect(
+            x: Metrics.horizontalInset,
+            y: itemY,
+            width: Metrics.characterWidth,
+            height: Metrics.itemHeight
+        )
+
+        let navigationX = bounds.maxX
+            - Metrics.horizontalInset
+            - Metrics.navigationWidth
+        let codeX = characterView.frame.maxX + Metrics.contentSpacing
+        let availableCodeWidth = max(
+            navigationX - Metrics.contentSpacing - codeX,
+            0
+        )
+
+        if keycapViews.isEmpty {
+            noCodeLabel.frame = NSRect(
+                x: codeX,
+                y: itemY,
+                width: availableCodeWidth,
+                height: Metrics.itemHeight
+            )
+        } else {
+            let spacingWidth = Metrics.keycapSpacing
+                * CGFloat(max(keycapViews.count - 1, 0))
+            let keycapWidth = min(
+                Metrics.keycapSize,
+                max(
+                    18,
+                    (availableCodeWidth - spacingWidth) / CGFloat(keycapViews.count)
+                )
+            )
+            var keycapX = codeX
+            for keycapView in keycapViews {
+                keycapView.frame = NSRect(
+                    x: keycapX,
+                    y: (bounds.height - Metrics.keycapSize) / 2,
+                    width: keycapWidth,
+                    height: Metrics.keycapSize
+                )
+                keycapX += keycapWidth + Metrics.keycapSpacing
+            }
+        }
+
+        let navigationY = (bounds.height - Metrics.navigationHeight) / 2
+        previousCodeButton.frame = NSRect(
+            x: navigationX,
+            y: navigationY,
+            width: Metrics.navigationButtonWidth,
+            height: Metrics.navigationHeight
+        )
+        pageLabel.frame = NSRect(
+            x: previousCodeButton.frame.maxX,
+            y: navigationY,
+            width: Metrics.pageLabelWidth,
+            height: Metrics.navigationHeight
+        )
+        nextCodeButton.frame = NSRect(
+            x: pageLabel.frame.maxX,
+            y: navigationY,
+            width: Metrics.navigationButtonWidth,
+            height: Metrics.navigationHeight
+        )
+    }
+}
+
+@MainActor
+private final class ReverseLookupCharacterView: NSView {
+    private let titleLabel: CandidateTextField
+    private let characterLabel: CandidateTextField
+
+    override init(frame frameRect: NSRect) {
+        titleLabel = CandidateTextField(labelWithString: "字")
+        characterLabel = CandidateTextField(labelWithString: "")
+        super.init(frame: frameRect)
+
+        wantsLayer = true
+        layer?.backgroundColor = NSColor(
+            srgbRed: 59.0 / 255.0,
+            green: 143.0 / 255.0,
+            blue: 229.0 / 255.0,
+            alpha: 1
+        ).cgColor
+        layer?.cornerRadius = 7
+        layer?.cornerCurve = .continuous
+
+        titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        titleLabel.textColor = NSColor.white.withAlphaComponent(0.76)
+        titleLabel.alignment = .center
+        characterLabel.font = .systemFont(ofSize: 20, weight: .medium)
+        characterLabel.textColor = .white
+        characterLabel.alignment = .center
+
+        addSubview(titleLabel)
+        addSubview(characterLabel)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(character: String) {
+        characterLabel.stringValue = character
+        setAccessibilityLabel("反查字：\(character)")
+        setAccessibilityValue(character)
+    }
+
+    override func layout() {
+        super.layout()
+
+        let titleWidth = ceil(titleLabel.intrinsicContentSize.width)
+        titleLabel.frame = NSRect(
+            x: 10,
+            y: 0,
+            width: titleWidth,
+            height: bounds.height
+        )
+        characterLabel.frame = NSRect(
+            x: titleLabel.frame.maxX + 6,
+            y: 0,
+            width: max(bounds.width - titleLabel.frame.maxX - 14, 0),
+            height: bounds.height
+        )
+    }
+}
+
+@MainActor
+private final class ReverseLookupKeycapView: NSView {
+    private let characterLabel: CandidateTextField
+
+    init(character: String) {
+        characterLabel = CandidateTextField(labelWithString: character)
+        super.init(frame: .zero)
+
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.08).cgColor
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.20).cgColor
+        layer?.borderWidth = 1
+        layer?.cornerRadius = 6
+        layer?.cornerCurve = .continuous
+
+        characterLabel.alignment = .center
+        characterLabel.font = .monospacedSystemFont(ofSize: 16, weight: .medium)
+        characterLabel.textColor = NSColor.white.withAlphaComponent(0.88)
+        addSubview(characterLabel)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+        setAccessibilityLabel("字根：\(character)")
+        setAccessibilityValue(character)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        characterLabel.frame = bounds
     }
 }
 

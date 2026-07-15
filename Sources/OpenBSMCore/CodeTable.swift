@@ -2,12 +2,19 @@ import Foundation
 
 public struct CodeTable: Sendable {
     private let entries: [String: [String]]
+    private let reverseEntries: [String: [String]]
 
     public init(entries: [String: [String]]) {
-        self.entries = entries.reduce(into: [:]) { result, entry in
+        let normalizedEntries = entries.reduce(into: [String: [String]]()) { result, entry in
             let code = Self.normalize(entry.key)
             guard !code.isEmpty, !entry.value.isEmpty else { return }
             result[code] = Self.unique(result[code, default: []] + entry.value)
+        }
+        self.entries = normalizedEntries
+        reverseEntries = normalizedEntries.keys.sorted().reduce(into: [:]) { result, code in
+            for candidate in normalizedEntries[code, default: []] {
+                result[candidate, default: []].append(code)
+            }
         }
     }
 
@@ -35,6 +42,10 @@ public struct CodeTable: Sendable {
 
     public func candidates(for code: String) -> [String] {
         entries[Self.normalize(code), default: []]
+    }
+
+    public func codes(for candidate: String) -> [String] {
+        reverseEntries[candidate, default: []]
     }
 
     public func hasCode(withPrefix prefix: String) -> Bool {
