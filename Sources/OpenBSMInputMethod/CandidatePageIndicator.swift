@@ -17,8 +17,8 @@ final class CandidateBar {
         static let minimumPageLabelWidth: CGFloat = 33
         static let anchorGap: CGFloat = 6
         static let screenInset: CGFloat = 8
-        static let reverseLookupWidth: CGFloat = 360
-        static let reverseLookupHeight: CGFloat = 64
+        static let reverseLookupWidth: CGFloat = 374
+        static let reverseLookupHeight: CGFloat = 52
     }
 
     private struct Layout {
@@ -708,16 +708,15 @@ private final class CandidateItemView: NSControl {
 @MainActor
 private final class ReverseLookupView: NSView {
     private enum Metrics {
-        static let horizontalInset: CGFloat = 12
-        static let characterWidth: CGFloat = 64
-        static let itemHeight: CGFloat = 30
-        static let contentSpacing: CGFloat = 14
+        static let horizontalInset: CGFloat = 8
+        static let characterWidth: CGFloat = 78
+        static let itemHeight: CGFloat = 36
+        static let contentSpacing: CGFloat = 6
         static let keycapSize: CGFloat = 28
         static let keycapSpacing: CGFloat = 6
-        static let navigationButtonWidth: CGFloat = 22
-        static let pageLabelWidth: CGFloat = 44
-        static let navigationWidth: CGFloat = navigationButtonWidth * 2 + pageLabelWidth
-        static let navigationHeight: CGFloat = 22
+        static let navigationButtonWidth: CGFloat = 32
+        static let minimumPageLabelWidth: CGFloat = 33
+        static let navigationHeight: CGFloat = 32
     }
 
     private let characterView: ReverseLookupCharacterView
@@ -726,6 +725,7 @@ private final class ReverseLookupView: NSView {
     private let pageLabel: CandidateTextField
     private let nextCodeButton: CandidatePageButton
     private var keycapViews: [ReverseLookupKeycapView] = []
+    private var pageLabelLayoutWidth = Metrics.minimumPageLabelWidth
 
     var onPageChanged: ((Int) -> Void)?
 
@@ -743,13 +743,16 @@ private final class ReverseLookupView: NSView {
         )
         super.init(frame: frameRect)
 
+        noCodeLabel.cell = VerticallyCenteredTextFieldCell(
+            textCell: noCodeLabel.stringValue
+        )
         noCodeLabel.font = .systemFont(ofSize: 13, weight: .medium)
         noCodeLabel.textColor = NSColor.white.withAlphaComponent(0.52)
         noCodeLabel.lineBreakMode = .byClipping
 
         pageLabel.alignment = .center
-        pageLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
-        pageLabel.textColor = NSColor.white.withAlphaComponent(0.62)
+        pageLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
+        pageLabel.textColor = NSColor.white.withAlphaComponent(0.58)
         pageLabel.lineBreakMode = .byClipping
         pageLabel.setAccessibilityLabel("拆碼分頁")
 
@@ -764,8 +767,8 @@ private final class ReverseLookupView: NSView {
 
         addSubview(characterView)
         addSubview(noCodeLabel)
-        addSubview(previousCodeButton)
         addSubview(pageLabel)
+        addSubview(previousCodeButton)
         addSubview(nextCodeButton)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
@@ -795,8 +798,20 @@ private final class ReverseLookupView: NSView {
 
         noCodeLabel.isHidden = code != nil
         pageLabel.stringValue = totalPages > 0
-            ? "\(currentPage) / \(totalPages)"
+            ? "\(currentPage)/\(totalPages)"
             : "—"
+        let maximumPageText = totalPages > 0
+            ? "\(totalPages)/\(totalPages)"
+            : "—"
+        let pageTextWidth = ceil(
+            (maximumPageText as NSString).size(
+                withAttributes: [.font: pageLabel.font!]
+            ).width
+        )
+        pageLabelLayoutWidth = max(
+            Metrics.minimumPageLabelWidth,
+            pageTextWidth + 8
+        )
         pageLabel.setAccessibilityValue(
             totalPages > 0
                 ? "第 \(currentPage) 組，共 \(totalPages) 組"
@@ -824,9 +839,11 @@ private final class ReverseLookupView: NSView {
             height: Metrics.itemHeight
         )
 
+        let navigationWidth = Metrics.navigationButtonWidth * 2
+            + pageLabelLayoutWidth
         let navigationX = bounds.maxX
             - Metrics.horizontalInset
-            - Metrics.navigationWidth
+            - navigationWidth
         let codeX = characterView.frame.maxX + Metrics.contentSpacing
         let availableCodeWidth = max(
             navigationX - Metrics.contentSpacing - codeX,
@@ -862,21 +879,22 @@ private final class ReverseLookupView: NSView {
             }
         }
 
+        let pageLabelHeight = ceil(pageLabel.intrinsicContentSize.height)
+        pageLabel.frame = NSRect(
+            x: navigationX,
+            y: (bounds.height - pageLabelHeight) / 2,
+            width: pageLabelLayoutWidth,
+            height: pageLabelHeight
+        )
         let navigationY = (bounds.height - Metrics.navigationHeight) / 2
         previousCodeButton.frame = NSRect(
-            x: navigationX,
+            x: pageLabel.frame.maxX,
             y: navigationY,
             width: Metrics.navigationButtonWidth,
             height: Metrics.navigationHeight
         )
-        pageLabel.frame = NSRect(
-            x: previousCodeButton.frame.maxX,
-            y: navigationY,
-            width: Metrics.pageLabelWidth,
-            height: Metrics.navigationHeight
-        )
         nextCodeButton.frame = NSRect(
-            x: pageLabel.frame.maxX,
+            x: previousCodeButton.frame.maxX,
             y: navigationY,
             width: Metrics.navigationButtonWidth,
             height: Metrics.navigationHeight
@@ -886,6 +904,12 @@ private final class ReverseLookupView: NSView {
 
 @MainActor
 private final class ReverseLookupCharacterView: NSView {
+    private enum Metrics {
+        static let horizontalInset: CGFloat = 14
+        static let badgeSize: CGFloat = 18
+        static let contentSpacing: CGFloat = 7
+    }
+
     private let titleLabel: CandidateTextField
     private let characterLabel: CandidateTextField
 
@@ -894,22 +918,40 @@ private final class ReverseLookupCharacterView: NSView {
         characterLabel = CandidateTextField(labelWithString: "")
         super.init(frame: frameRect)
 
+        titleLabel.cell = VerticallyCenteredTextFieldCell(
+            textCell: titleLabel.stringValue
+        )
+        characterLabel.cell = VerticallyCenteredTextFieldCell(
+            textCell: characterLabel.stringValue
+        )
+
         wantsLayer = true
         layer?.backgroundColor = NSColor(
-            srgbRed: 59.0 / 255.0,
-            green: 143.0 / 255.0,
-            blue: 229.0 / 255.0,
+            srgbRed: 55.0 / 255.0,
+            green: 138.0 / 255.0,
+            blue: 221.0 / 255.0,
             alpha: 1
         ).cgColor
-        layer?.cornerRadius = 7
+        layer?.cornerRadius = 8
         layer?.cornerCurve = .continuous
 
-        titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
-        titleLabel.textColor = NSColor.white.withAlphaComponent(0.76)
+        titleLabel.font = .systemFont(ofSize: 10, weight: .semibold)
+        titleLabel.textColor = NSColor.white.withAlphaComponent(0.92)
         titleLabel.alignment = .center
-        characterLabel.font = .systemFont(ofSize: 20, weight: .medium)
+        titleLabel.lineBreakMode = .byClipping
+        titleLabel.wantsLayer = true
+        titleLabel.layer?.backgroundColor = NSColor.white.withAlphaComponent(
+            0.22
+        ).cgColor
+        titleLabel.layer?.cornerRadius = Metrics.badgeSize / 2
+        titleLabel.layer?.cornerCurve = .continuous
+        titleLabel.layer?.masksToBounds = true
+
+        characterLabel.font = .systemFont(ofSize: 21, weight: .medium)
         characterLabel.textColor = .white
         characterLabel.alignment = .center
+        characterLabel.lineBreakMode = .byTruncatingTail
+        characterLabel.maximumNumberOfLines = 1
 
         addSubview(titleLabel)
         addSubview(characterLabel)
@@ -930,17 +972,17 @@ private final class ReverseLookupCharacterView: NSView {
     override func layout() {
         super.layout()
 
-        let titleWidth = ceil(titleLabel.intrinsicContentSize.width)
         titleLabel.frame = NSRect(
-            x: 10,
-            y: 0,
-            width: titleWidth,
-            height: bounds.height
+            x: Metrics.horizontalInset,
+            y: (bounds.height - Metrics.badgeSize) / 2,
+            width: Metrics.badgeSize,
+            height: Metrics.badgeSize
         )
+        let characterX = titleLabel.frame.maxX + Metrics.contentSpacing
         characterLabel.frame = NSRect(
-            x: titleLabel.frame.maxX + 6,
+            x: characterX,
             y: 0,
-            width: max(bounds.width - titleLabel.frame.maxX - 14, 0),
+            width: max(bounds.width - characterX - Metrics.horizontalInset, 0),
             height: bounds.height
         )
     }
@@ -954,12 +996,14 @@ private final class ReverseLookupKeycapView: NSView {
         characterLabel = CandidateTextField(labelWithString: character)
         super.init(frame: .zero)
 
+        characterLabel.cell = VerticallyCenteredTextFieldCell(
+            textCell: characterLabel.stringValue
+        )
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.08).cgColor
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.20).cgColor
-        layer?.borderWidth = 1
-        layer?.cornerRadius = 6
+        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.10).cgColor
+        layer?.cornerRadius = 8
         layer?.cornerCurve = .continuous
+        layer?.masksToBounds = true
 
         characterLabel.alignment = .center
         characterLabel.font = .monospacedSystemFont(ofSize: 16, weight: .medium)
