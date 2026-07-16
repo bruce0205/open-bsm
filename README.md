@@ -67,6 +67,27 @@ make build
 
 The resulting app is written to `.build/OpenBSM.app`.
 
+To create a shareable development DMG:
+
+```bash
+make dmg
+```
+
+The resulting disk image is written to `.build/OpenBSM.dmg`. This DMG is
+ad-hoc signed for testing. Public distribution still requires a Developer ID
+certificate, notarization, and stapling.
+
+To create a macOS Installer package:
+
+```bash
+make pkg
+```
+
+The resulting installer is written to `.build/OpenBSM.pkg`. It installs
+OpenBSM system-wide under `/Library/Input Methods/` and asks for administrator
+authorization. The development package is unsigned; public distribution still
+requires a Developer ID Installer certificate, notarization, and stapling.
+
 ## Install for the current user
 
 ```bash

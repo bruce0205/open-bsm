@@ -1,0 +1,5 @@
+#!/bin/zsh
+
+pkill -TERM -f "/Library/Input Methods/OpenBSM.app/Contents/MacOS/OpenBSMInputMethod" 2>/dev/null || true
+
+exit 0
