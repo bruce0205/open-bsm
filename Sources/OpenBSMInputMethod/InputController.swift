@@ -1,27 +1,47 @@
 import AppKit
+import Carbon
 @preconcurrency import InputMethodKit
 import OpenBSMCore
 
 @objc(OpenBSMInputController)
 final class InputController: IMKInputController, @unchecked Sendable {
-    private let codeTable: CodeTable
+    private static let userTableDirectoryName = "OpenBSM"
+    private static let userTableFileName = "user.txt"
+    private static let userTableDidReload = Notification.Name("OpenBSMUserTableDidReload")
+
+    private let bundledCodeTable: CodeTable
+    private var codeTable: CodeTable
     private var engine: InputEngine
     private var reverseLookupCharacter: String?
     private var reverseLookupCodes: [String] = []
     private var reverseLookupCodeIndex = 0
+    private var modeToggleHotKey: EventHotKeyRef?
+    private var modeToggleHotKeyHandler: EventHandlerRef?
     private var candidateBar: CandidateBar { sharedCandidateBar }
 
     override init!(server: IMKServer!, delegate: Any!, client inputClient: Any!) {
-        let table: CodeTable
+        let bundledTable: CodeTable
         if let url = Bundle.main.url(forResource: "bsm", withExtension: "txt"),
            let loadedTable = try? CodeTable.load(from: url) {
-            table = loadedTable
+            bundledTable = loadedTable
         } else {
-            table = CodeTable(entries: [:])
+            bundledTable = CodeTable(entries: [:])
         }
+        let table = bundledTable.merging(Self.loadUserTable(), otherCandidatesFirst: true)
+        bundledCodeTable = bundledTable
         codeTable = table
         engine = InputEngine(codeTable: table)
         super.init(server: server, delegate: delegate, client: inputClient)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reloadUserTableNotification(_:)),
+            name: Self.userTableDidReload,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     override func handle(_ event: NSEvent!, client sender: Any!) -> Bool {
@@ -107,7 +127,13 @@ final class InputController: IMKInputController, @unchecked Sendable {
         commit(text, client: sender)
     }
 
+    override func activateServer(_ sender: Any!) {
+        super.activateServer(sender)
+        registerModeToggleHotKey()
+    }
+
     override func deactivateServer(_ sender: Any!) {
+        unregisterModeToggleHotKey()
         if !engine.buffer.isEmpty {
             commitComposition(sender)
         }
@@ -121,6 +147,7 @@ final class InputController: IMKInputController, @unchecked Sendable {
     }
 
     override func inputControllerWillClose() {
+        unregisterModeToggleHotKey()
         hideCandidates()
         super.inputControllerWillClose()
     }
@@ -131,6 +158,23 @@ final class InputController: IMKInputController, @unchecked Sendable {
         let item = NSMenuItem(title: title, action: #selector(toggleInputMode(_:)), keyEquivalent: "")
         item.target = self
         menu.addItem(item)
+        menu.addItem(.separator())
+
+        let editUserTableItem = NSMenuItem(
+            title: "編輯個人碼表…",
+            action: #selector(editUserTable(_:)),
+            keyEquivalent: ""
+        )
+        editUserTableItem.target = self
+        menu.addItem(editUserTableItem)
+
+        let reloadUserTableItem = NSMenuItem(
+            title: "重新載入個人碼表",
+            action: #selector(reloadUserTable(_:)),
+            keyEquivalent: ""
+        )
+        reloadUserTableItem.target = self
+        menu.addItem(reloadUserTableItem)
         return menu
     }
 
@@ -140,6 +184,117 @@ final class InputController: IMKInputController, @unchecked Sendable {
             commitComposition(inputClient)
         }
         apply(engine.handle(.toggleInputMode), client: inputClient)
+    }
+
+    @objc private func editUserTable(_ sender: Any?) {
+        guard let url = Self.ensureUserTableExists() else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    @objc private func reloadUserTable(_ sender: Any?) {
+        NotificationCenter.default.post(name: Self.userTableDidReload, object: nil)
+    }
+
+    @objc private func reloadUserTableNotification(_ notification: Notification) {
+        let inputClient = client()
+        if !engine.buffer.isEmpty {
+            commitComposition(inputClient)
+        }
+
+        let isEnglishMode = engine.isEnglishMode
+        codeTable = bundledCodeTable.merging(Self.loadUserTable(), otherCandidatesFirst: true)
+        engine = InputEngine(codeTable: codeTable)
+        if isEnglishMode {
+            _ = engine.handle(.toggleInputMode)
+        }
+        hideCandidates()
+    }
+
+    private static func loadUserTable() -> CodeTable {
+        guard let url = userTableURL(),
+              let table = try? CodeTable.load(from: url) else {
+            return CodeTable(entries: [:])
+        }
+        return table
+    }
+
+    private static func ensureUserTableExists() -> URL? {
+        guard let url = userTableURL() else { return nil }
+        let fileManager = FileManager.default
+
+        do {
+            try fileManager.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            guard !fileManager.fileExists(atPath: url.path) else { return url }
+
+            let template = """
+            # OpenBSM personal code table
+            # One mapping per line: code candidate1 candidate2
+            # Use tabs between fields when a candidate contains spaces.
+            # addr bruce@example.com
+            """
+            try template.write(to: url, atomically: true, encoding: .utf8)
+            return url
+        } catch {
+            return nil
+        }
+    }
+
+    private static func userTableURL() -> URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent(userTableDirectoryName, isDirectory: true)
+            .appendingPathComponent(userTableFileName, isDirectory: false)
+    }
+
+    private func registerModeToggleHotKey() {
+        guard modeToggleHotKey == nil, modeToggleHotKeyHandler == nil else { return }
+
+        var eventType = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: UInt32(kEventHotKeyPressed)
+        )
+        let handlerStatus = InstallEventHandler(
+            GetApplicationEventTarget(),
+            { _, _, userData in
+                guard let userData else { return OSStatus(eventNotHandledErr) }
+                let controller = Unmanaged<InputController>.fromOpaque(userData).takeUnretainedValue()
+                controller.toggleInputMode(nil)
+                return noErr
+            },
+            1,
+            &eventType,
+            Unmanaged.passUnretained(self).toOpaque(),
+            &modeToggleHotKeyHandler
+        )
+        guard handlerStatus == noErr else { return }
+
+        let hotKeyID = EventHotKeyID(signature: OSType(0x4F42534D), id: 1)
+        let hotKeyStatus = RegisterEventHotKey(
+            UInt32(kVK_Space),
+            UInt32(shiftKey),
+            hotKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &modeToggleHotKey
+        )
+        guard hotKeyStatus == noErr else {
+            RemoveEventHandler(modeToggleHotKeyHandler)
+            modeToggleHotKeyHandler = nil
+            return
+        }
+    }
+
+    private func unregisterModeToggleHotKey() {
+        if let modeToggleHotKey {
+            UnregisterEventHotKey(modeToggleHotKey)
+            self.modeToggleHotKey = nil
+        }
+        if let modeToggleHotKeyHandler {
+            RemoveEventHandler(modeToggleHotKeyHandler)
+            self.modeToggleHotKeyHandler = nil
+        }
     }
 
     private func apply(_ result: InputResult, client sender: Any?) {
@@ -160,7 +315,6 @@ final class InputController: IMKInputController, @unchecked Sendable {
             hideCandidates()
 
         case .modeChanged:
-            updateComposition()
             hideCandidates()
         }
     }

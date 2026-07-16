@@ -198,15 +198,16 @@ private func makeEngine(candidateCount: Int) -> InputEngine {
     #expect(engine.handle(.character(";")) == .composing(text: "h;", candidates: ["☆"]))
 }
 
-@Test func commitsPunctuationWithoutCodePrefix() {
+@Test func passesThroughPunctuationWithoutCodeMapping() {
     var engine = InputEngine(codeTable: table)
 
-    #expect(engine.handle(.character("!")) == .commit("！"))
+    #expect(engine.handle(.character("!")) == .passThrough)
 }
 
-@Test func commitsCandidateBeforePunctuation() {
+@Test func keepsCompositionWhenPunctuationHasNoCodeMapping() {
     var engine = InputEngine(codeTable: table)
 
     _ = engine.handle(.character("a"))
-    #expect(engine.handle(.character(",")) == .commit("日，"))
+    #expect(engine.handle(.character(",")) == .passThrough)
+    #expect(engine.buffer == "a")
 }

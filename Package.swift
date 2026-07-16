@@ -18,6 +18,7 @@ let package = Package(
             dependencies: ["OpenBSMCore"],
             linkerSettings: [
                 .linkedFramework("AppKit"),
+                .linkedFramework("Carbon"),
                 .linkedFramework("InputMethodKit"),
             ]
         ),

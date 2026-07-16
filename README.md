@@ -15,18 +15,20 @@ provenance notice at the start of `Resources/bsm.txt`.
 
 - Native Apple Silicon executable.
 - InputMethodKit input controller and a custom native candidate bar.
-- Plain-text code table loader.
-- Letter-root composition with inline marked text.
+- Plain-text code table loader with normalized, case-insensitive roots.
+- Composition of roots up to five characters with inline marked text.
 - Exact-match candidate lookup with nine candidates per page.
 - Arrow keys move candidate selection; `Page Up` and `Page Down` change pages.
-- Candidates and current/total page controls share one integrated candidate bar.
+- Mouse-selectable candidates and page controls in one integrated candidate bar.
 - `Space` or `Enter` to commit the selected candidate.
 - Number keys `1` through `9` to select a candidate from the current page.
 - `Backspace` to remove the last root.
 - `Escape` to cancel composition.
-- `Shift + Space` to switch between Chinese and direct English input.
-- Basic Traditional Chinese punctuation, including committing active composition first;
-  punctuation roots can also start symbol codes such as `.s`.
+- `Shift + Space` to switch between Chinese and direct English input, including
+  terminal clients such as iTerm2, Ghostty, and the VS Code integrated terminal.
+- Punctuation and symbol input exclusively through code-table roots such as
+  `.s`, `,s`, `[[`, and `]]`; there are no hard-coded punctuation conversions.
+- Personal code table at `~/Library/Application Support/OpenBSM/user.txt`.
 - Root-code reverse lookup for selected text with `Option + Shift + R`.
 - Input menu item for switching Chinese and English modes.
 - Unit tests for table parsing and the input state machine.
@@ -34,19 +36,16 @@ provenance notice at the start of `Resources/bsm.txt`.
 
 ### Remaining before the first public release
 
-- Validate behavior in common apps such as Safari, Terminal, VS Code, and
-  Microsoft Office.
-- Add an original app icon and input menu icon.
+- Validate behavior in additional apps such as Safari and Microsoft Office.
+- Add an original app icon.
 - Add Developer ID signing, notarization, and a distributable installer.
 - Add a settings window for shortcuts and table management.
 
 ## Planned features
 
-- User-defined phrases and shortcut codes.
 - Candidate frequency learning.
 - Wildcard and fuzzy lookup.
 - Full-width and half-width modes.
-- Extended punctuation and symbol input.
 - User dictionary import, export, and backup.
 - Per-app Chinese or English mode memory.
 - Optional iCloud dictionary synchronization.
@@ -55,7 +54,7 @@ provenance notice at the start of `Resources/bsm.txt`.
 
 - Apple Silicon Mac.
 - macOS 13 or later.
-- Xcode 15 or later with the macOS SDK.
+- Xcode 16 or later with the macOS SDK and Swift 6.
 
 ## Build
 
@@ -79,6 +78,60 @@ Edit**, click **+**, and add **OpenBSM** under Traditional Chinese.
 
 The development build uses ad-hoc code signing. Release builds need a Developer
 ID certificate and Apple notarization.
+
+## Usage
+
+OpenBSM starts in Chinese mode. Type a root sequence and select a candidate:
+
+- `Space` or `Enter` commits the highlighted candidate. If the root has no
+  exact match, it commits the root text itself.
+- `Left Arrow` or `Up Arrow` selects the previous candidate.
+- `Right Arrow` or `Down Arrow` selects the next candidate.
+- `Page Up` and `Page Down` move between candidate pages.
+- Number keys `1` through `9` select a visible candidate directly.
+- `Backspace` removes the last root; `Escape` cancels the composition.
+- `Shift + Space` switches between Chinese and direct English input. The hot
+  key is registered only while OpenBSM is active and does not require Input
+  Monitoring or Accessibility permission.
+
+ASCII letters are accepted as roots even before an exact candidate exists. A
+non-letter ASCII character is accepted only when the current root remains a
+prefix of at least one code-table entry. Other characters pass through to the
+current app without committing or cancelling an active composition.
+
+Punctuation and symbols follow exactly the same lookup path as Chinese
+characters. For example, type `.s` and press `Space` to commit `♠`. OpenBSM does
+not automatically transform `!` into `！` or provide a separate punctuation
+mode; add or modify mappings in `Resources/bsm.txt` instead.
+
+## Personal code table
+
+Open the input-method menu and choose **編輯個人碼表…** to create and open:
+
+```text
+~/Library/Application Support/OpenBSM/user.txt
+```
+
+The file uses the same format as the bundled code table:
+
+```text
+# code candidate1 candidate2
+addr bruce@example.com
+sig<TAB>Bruce Hsu
+```
+
+Use a literal Tab in place of `<TAB>` when a candidate contains spaces. Multiple
+Tab-separated candidate fields are supported, so `cmd<TAB>git push origin
+main<TAB>git status` creates two candidates.
+
+After saving the file, choose **重新載入個人碼表** from the input-method menu.
+Reloading commits any active composition, preserves the current Chinese or
+English mode, and applies the updated mappings immediately.
+
+OpenBSM loads the bundled `Resources/bsm.txt` first, then the personal table.
+For a duplicate code, personal candidates appear before bundled candidates;
+duplicate candidates are shown only once. The personal table is never written
+to the app bundle, so it survives rebuilding and reinstalling OpenBSM.
 
 ## Root-code reverse lookup
 
@@ -104,8 +157,13 @@ code candidate1 candidate2
 ```
 
 Codes are normalized to lowercase. Blank lines and malformed lines are ignored.
-The bundled table is converted from the CIN format. To use another legally
-obtained table, replace `Resources/bsm.txt` and rebuild.
+Duplicate codes are merged and duplicate candidates retain their first-seen
+order. The bundled table is converted from the CIN format. To use another
+legally obtained table, replace `Resources/bsm.txt` and rebuild.
+
+For a personal code table, Tab-separated fields can be used when a candidate
+contains spaces. The first field is the code and each remaining field is one
+candidate.
 
 ## License and table provenance
 
@@ -131,7 +189,8 @@ be customized without being limited by the system candidate window.
 Open `Package.swift` in Xcode for source-level development. Use `make build` to
 produce the correctly structured `.app` bundle required by macOS input methods.
 
-To reload OpenBSM after installing a development build without logging out:
+After the initial installation and login, reload a development build without
+logging out by temporarily switching to another input source:
 
 ```zsh
 # 先切到 ABC

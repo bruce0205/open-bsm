@@ -25,11 +25,21 @@ public struct CodeTable: Sendable {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty, !line.hasPrefix("#") else { continue }
 
-            let fields = line.split(whereSeparator: \Character.isWhitespace)
-            guard fields.count >= 2 else { continue }
-
-            let code = Self.normalize(String(fields[0]))
-            let candidates = fields.dropFirst().map(String.init)
+            let code: String
+            let candidates: [String]
+            if line.contains("\t") {
+                let fields = line.split(separator: "\t").map {
+                    String($0).trimmingCharacters(in: .whitespaces)
+                }
+                guard fields.count >= 2 else { continue }
+                code = Self.normalize(fields[0])
+                candidates = Array(fields.dropFirst())
+            } else {
+                let fields = line.split(whereSeparator: \Character.isWhitespace)
+                guard fields.count >= 2 else { continue }
+                code = Self.normalize(String(fields[0]))
+                candidates = fields.dropFirst().map(String.init)
+            }
             entries[code, default: []].append(contentsOf: candidates)
         }
 
@@ -38,6 +48,20 @@ public struct CodeTable: Sendable {
 
     public static func load(from url: URL) throws -> CodeTable {
         try CodeTable(contents: String(contentsOf: url, encoding: .utf8))
+    }
+
+    public func merging(_ other: CodeTable, otherCandidatesFirst: Bool = false) -> CodeTable {
+        var mergedEntries = entries
+
+        for (code, candidates) in other.entries {
+            let existingCandidates = mergedEntries[code, default: []]
+            let combinedCandidates = otherCandidatesFirst
+                ? candidates + existingCandidates
+                : existingCandidates + candidates
+            mergedEntries[code] = Self.unique(combinedCandidates)
+        }
+
+        return CodeTable(entries: mergedEntries)
     }
 
     public func candidates(for code: String) -> [String] {

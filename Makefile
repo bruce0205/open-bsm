@@ -10,7 +10,7 @@ install:
 	./Scripts/install.sh
 
 reload: install
-	pkill -TERM -x -f "$$HOME/Library/Input Methods/OpenBSM.app/Contents/MacOS/OpenBSMInputMethod" 2>/dev/null || true
+	pkill -TERM -f "$$HOME/Library/Input Methods/OpenBSM.app/Contents/MacOS/OpenBSMInputMethod" 2>/dev/null || true
 
 clean:
 	swift package clean

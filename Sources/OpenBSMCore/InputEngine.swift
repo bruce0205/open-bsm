@@ -109,15 +109,11 @@ public struct InputEngine: Sendable {
             return .passThrough
         }
 
-        if isCodeCharacter(character) {
-            guard buffer.count < maximumCodeLength else { return .passThrough }
-            buffer.append(contentsOf: character.lowercased())
-            return refreshCandidates()
+        guard isCodeCharacter(character), buffer.count < maximumCodeLength else {
+            return .passThrough
         }
-
-        guard let punctuation = Self.punctuation[character] else { return .passThrough }
-        let composedText = buffer.isEmpty ? "" : selectedCandidate ?? buffer
-        return commit(composedText + punctuation)
+        buffer.append(contentsOf: character.lowercased())
+        return refreshCandidates()
     }
 
     private func isCodeCharacter(_ character: Character) -> Bool {
@@ -186,17 +182,4 @@ public struct InputEngine: Sendable {
         candidates = []
         selectedCandidateIndex = 0
     }
-
-    private static let punctuation: [Character: String] = [
-        ",": "，",
-        ".": "。",
-        ";": "；",
-        ":": "：",
-        "?": "？",
-        "!": "！",
-        "(": "（",
-        ")": "）",
-        "[": "「",
-        "]": "」",
-    ]
 }
