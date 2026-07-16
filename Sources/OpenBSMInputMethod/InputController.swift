@@ -75,6 +75,29 @@ final class InputController: IMKInputController, @unchecked Sendable {
             return true
         }
 
+        if event.keyCode == 48 {
+            NSLog(
+                "OpenBSM Tab diagnostic: english=%d bufferLength=%d candidates=%d textInputClient=%d clientType=%@",
+                engine.isEnglishMode ? 1 : 0,
+                engine.buffer.count,
+                engine.candidates.count,
+                sender is any NSTextInputClient ? 1 : 0,
+                String(describing: type(of: sender))
+            )
+        }
+
+        if event.keyCode == 48, !engine.isEnglishMode, engine.candidates.isEmpty {
+            if !engine.buffer.isEmpty {
+                commitComposition(sender)
+                updateComposition()
+            }
+            guard let textInputClient = sender as? any NSTextInputClient else {
+                return false
+            }
+            textInputClient.doCommand(by: #selector(NSResponder.insertTab(_:)))
+            return true
+        }
+
         let command: InputCommand?
         switch event.keyCode {
         case 36, 76:
