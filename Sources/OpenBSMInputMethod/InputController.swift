@@ -3,6 +3,86 @@ import Carbon
 @preconcurrency import InputMethodKit
 import OpenBSMCore
 
+@MainActor
+private final class ModeToggleHotKeyManager {
+    static let shared = ModeToggleHotKeyManager()
+
+    private weak var activeController: InputController?
+    private var hotKey: EventHotKeyRef?
+    private var eventHandler: EventHandlerRef?
+
+    func activate(_ controller: InputController) {
+        activeController = controller
+        guard hotKey == nil, eventHandler == nil else { return }
+
+        var eventType = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: UInt32(kEventHotKeyPressed)
+        )
+        let handlerStatus = InstallEventHandler(
+            GetApplicationEventTarget(),
+            { _, _, userData in
+                guard let userData else { return OSStatus(eventNotHandledErr) }
+                let manager = Unmanaged<ModeToggleHotKeyManager>
+                    .fromOpaque(userData)
+                    .takeUnretainedValue()
+                return MainActor.assumeIsolated {
+                    manager.handleHotKey()
+                }
+            },
+            1,
+            &eventType,
+            Unmanaged.passUnretained(self).toOpaque(),
+            &eventHandler
+        )
+        guard handlerStatus == noErr else {
+            NSLog("OpenBSM failed to install mode hot key handler: %d", handlerStatus)
+            return
+        }
+
+        let hotKeyID = EventHotKeyID(signature: OSType(0x4F42534D), id: 1)
+        let hotKeyStatus = RegisterEventHotKey(
+            UInt32(kVK_Space),
+            UInt32(shiftKey),
+            hotKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &hotKey
+        )
+        guard hotKeyStatus == noErr else {
+            NSLog("OpenBSM failed to register mode hot key: %d", hotKeyStatus)
+            RemoveEventHandler(eventHandler)
+            eventHandler = nil
+            return
+        }
+    }
+
+    func deactivate(_ controller: InputController) {
+        guard activeController === controller else { return }
+        activeController = nil
+        unregister()
+    }
+
+    private func handleHotKey() -> OSStatus {
+        guard let activeController else {
+            return OSStatus(eventNotHandledErr)
+        }
+        activeController.toggleInputMode()
+        return noErr
+    }
+
+    private func unregister() {
+        if let hotKey {
+            UnregisterEventHotKey(hotKey)
+            self.hotKey = nil
+        }
+        if let eventHandler {
+            RemoveEventHandler(eventHandler)
+            self.eventHandler = nil
+        }
+    }
+}
+
 @objc(OpenBSMInputController)
 final class InputController: IMKInputController, @unchecked Sendable {
     private static let userTableDirectoryName = "OpenBSM"
@@ -15,8 +95,6 @@ final class InputController: IMKInputController, @unchecked Sendable {
     private var reverseLookupCharacter: String?
     private var reverseLookupCodes: [String] = []
     private var reverseLookupCodeIndex = 0
-    private var modeToggleHotKey: EventHotKeyRef?
-    private var modeToggleHotKeyHandler: EventHandlerRef?
     private var candidateBar: CandidateBar { sharedCandidateBar }
 
     override init!(server: IMKServer!, delegate: Any!, client inputClient: Any!) {
@@ -152,11 +230,15 @@ final class InputController: IMKInputController, @unchecked Sendable {
 
     override func activateServer(_ sender: Any!) {
         super.activateServer(sender)
-        registerModeToggleHotKey()
+        MainActor.assumeIsolated {
+            ModeToggleHotKeyManager.shared.activate(self)
+        }
     }
 
     override func deactivateServer(_ sender: Any!) {
-        unregisterModeToggleHotKey()
+        MainActor.assumeIsolated {
+            ModeToggleHotKeyManager.shared.deactivate(self)
+        }
         if !engine.buffer.isEmpty {
             commitComposition(sender)
         }
@@ -170,7 +252,9 @@ final class InputController: IMKInputController, @unchecked Sendable {
     }
 
     override func inputControllerWillClose() {
-        unregisterModeToggleHotKey()
+        MainActor.assumeIsolated {
+            ModeToggleHotKeyManager.shared.deactivate(self)
+        }
         hideCandidates()
         super.inputControllerWillClose()
     }
@@ -201,7 +285,7 @@ final class InputController: IMKInputController, @unchecked Sendable {
         return menu
     }
 
-    @objc private func toggleInputMode(_ sender: Any?) {
+    @objc fileprivate func toggleInputMode(_ sender: Any? = nil) {
         let inputClient = client()
         if !engine.buffer.isEmpty {
             commitComposition(inputClient)
@@ -269,55 +353,6 @@ final class InputController: IMKInputController, @unchecked Sendable {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent(userTableDirectoryName, isDirectory: true)
             .appendingPathComponent(userTableFileName, isDirectory: false)
-    }
-
-    private func registerModeToggleHotKey() {
-        guard modeToggleHotKey == nil, modeToggleHotKeyHandler == nil else { return }
-
-        var eventType = EventTypeSpec(
-            eventClass: OSType(kEventClassKeyboard),
-            eventKind: UInt32(kEventHotKeyPressed)
-        )
-        let handlerStatus = InstallEventHandler(
-            GetApplicationEventTarget(),
-            { _, _, userData in
-                guard let userData else { return OSStatus(eventNotHandledErr) }
-                let controller = Unmanaged<InputController>.fromOpaque(userData).takeUnretainedValue()
-                controller.toggleInputMode(nil)
-                return noErr
-            },
-            1,
-            &eventType,
-            Unmanaged.passUnretained(self).toOpaque(),
-            &modeToggleHotKeyHandler
-        )
-        guard handlerStatus == noErr else { return }
-
-        let hotKeyID = EventHotKeyID(signature: OSType(0x4F42534D), id: 1)
-        let hotKeyStatus = RegisterEventHotKey(
-            UInt32(kVK_Space),
-            UInt32(shiftKey),
-            hotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &modeToggleHotKey
-        )
-        guard hotKeyStatus == noErr else {
-            RemoveEventHandler(modeToggleHotKeyHandler)
-            modeToggleHotKeyHandler = nil
-            return
-        }
-    }
-
-    private func unregisterModeToggleHotKey() {
-        if let modeToggleHotKey {
-            UnregisterEventHotKey(modeToggleHotKey)
-            self.modeToggleHotKey = nil
-        }
-        if let modeToggleHotKeyHandler {
-            RemoveEventHandler(modeToggleHotKeyHandler)
-            self.modeToggleHotKeyHandler = nil
-        }
     }
 
     private func apply(_ result: InputResult, client sender: Any?) {
