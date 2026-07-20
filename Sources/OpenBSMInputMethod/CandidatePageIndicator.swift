@@ -1,6 +1,129 @@
 import AppKit
 @preconcurrency import InputMethodKit
 
+enum CandidateBarTheme: String {
+    case dark
+    case light
+
+    private static let defaultsKey = "CandidateBarTheme"
+
+    static var current: Self {
+        guard let rawValue = UserDefaults.standard.string(forKey: defaultsKey),
+              let theme = Self(rawValue: rawValue) else {
+            return .dark
+        }
+        return theme
+    }
+
+    static func select(_ theme: Self) {
+        UserDefaults.standard.set(theme.rawValue, forKey: defaultsKey)
+    }
+
+    var tintColor: NSColor {
+        switch self {
+        case .dark:
+            NSColor(
+                srgbRed: 28.0 / 255.0,
+                green: 28.0 / 255.0,
+                blue: 26.0 / 255.0,
+                alpha: 0.90
+            )
+        case .light:
+            NSColor(
+                srgbRed: 248.0 / 255.0,
+                green: 247.0 / 255.0,
+                blue: 243.0 / 255.0,
+                alpha: 0.94
+            )
+        }
+    }
+
+    var selectedBackgroundColor: NSColor {
+        switch self {
+        case .dark:
+            NSColor(
+                srgbRed: 55.0 / 255.0,
+                green: 138.0 / 255.0,
+                blue: 221.0 / 255.0,
+                alpha: 1
+            )
+        case .light:
+            NSColor(
+                srgbRed: 25.0 / 255.0,
+                green: 90.0 / 255.0,
+                blue: 145.0 / 255.0,
+                alpha: 1
+            )
+        }
+    }
+
+    var primaryTextColor: NSColor {
+        self == .dark ? NSColor.white.withAlphaComponent(0.76) : NSColor(
+            srgbRed: 30.0 / 255.0,
+            green: 41.0 / 255.0,
+            blue: 51.0 / 255.0,
+            alpha: 1
+        )
+    }
+
+    var secondaryTextColor: NSColor {
+        self == .dark ? NSColor.white.withAlphaComponent(0.58) : NSColor(
+            srgbRed: 107.0 / 255.0,
+            green: 114.0 / 255.0,
+            blue: 128.0 / 255.0,
+            alpha: 1
+        )
+    }
+
+    var mutedTextColor: NSColor {
+        self == .dark ? NSColor.white.withAlphaComponent(0.52) : NSColor(
+            srgbRed: 107.0 / 255.0,
+            green: 114.0 / 255.0,
+            blue: 128.0 / 255.0,
+            alpha: 0.82
+        )
+    }
+
+    var shortcutTextColor: NSColor {
+        self == .dark ? NSColor.white.withAlphaComponent(0.68) : secondaryTextColor
+    }
+
+    var keycapTextColor: NSColor {
+        self == .dark ? NSColor.white.withAlphaComponent(0.88) : primaryTextColor
+    }
+
+    var navigationIconColor: NSColor {
+        self == .dark ? NSColor.white.withAlphaComponent(0.55) : secondaryTextColor
+    }
+
+    var subtleFillColor: NSColor {
+        self == .dark ? NSColor.white.withAlphaComponent(0.10) : NSColor(
+            srgbRed: 30.0 / 255.0,
+            green: 41.0 / 255.0,
+            blue: 51.0 / 255.0,
+            alpha: 0.08
+        )
+    }
+
+    var hoverFillColor: NSColor {
+        self == .dark ? NSColor.white.withAlphaComponent(0.07) : NSColor(
+            srgbRed: 30.0 / 255.0,
+            green: 41.0 / 255.0,
+            blue: 51.0 / 255.0,
+            alpha: 0.06
+        )
+    }
+
+    var pressedFillColor: NSColor {
+        self == .dark ? NSColor.white.withAlphaComponent(0.12) : NSColor(
+            srgbRed: 30.0 / 255.0,
+            green: 41.0 / 255.0,
+            blue: 51.0 / 255.0,
+            alpha: 0.10
+        )
+    }
+}
+
 @MainActor
 final class CandidateBar {
     private enum Metrics {
@@ -46,6 +169,17 @@ final class CandidateBar {
     private var lastAnchor: (rect: NSRect, isHorizontal: Bool)?
     private var revision = 0
 
+    private var theme: CandidateBarTheme = .current {
+        didSet {
+            backgroundView.apply(theme: theme)
+            candidateViews.forEach { $0.apply(theme: theme) }
+            previousPageButton.apply(theme: theme)
+            nextPageButton.apply(theme: theme)
+            pageLabel.textColor = theme.secondaryTextColor
+            reverseLookupView.apply(theme: theme)
+        }
+    }
+
     init() {
         let panel = CandidatePanel(
             contentRect: .zero,
@@ -70,7 +204,7 @@ final class CandidateBar {
 
         pageLabel.alignment = .center
         pageLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
-        pageLabel.textColor = NSColor.white.withAlphaComponent(0.58)
+        pageLabel.textColor = theme.secondaryTextColor
         pageLabel.lineBreakMode = .byClipping
         pageLabel.setAccessibilityLabel("分頁")
 
@@ -82,6 +216,8 @@ final class CandidateBar {
         backgroundView.addSubview(nextPageButton)
         backgroundView.addSubview(reverseLookupView)
         reverseLookupView.isHidden = true
+
+        backgroundView.apply(theme: theme)
 
         panel.contentView = backgroundView
         panel.isFloatingPanel = true
@@ -137,6 +273,8 @@ final class CandidateBar {
         onCandidateSelected: @escaping (Int) -> Void,
         onPageChanged: @escaping (Int) -> Void
     ) {
+        selectTheme(.current)
+
         if self.owner !== owner {
             lastAnchor = nil
             panel.orderOut(nil)
@@ -197,6 +335,8 @@ final class CandidateBar {
         client: any IMKTextInput,
         onPageChanged: @escaping (Int) -> Void
     ) {
+        selectTheme(.current)
+
         if self.owner !== owner {
             lastAnchor = nil
             panel.orderOut(nil)
@@ -251,6 +391,10 @@ final class CandidateBar {
         reverseLookupView.isHidden = true
         lastAnchor = nil
         panel.orderOut(nil)
+    }
+
+    func selectTheme(_ theme: CandidateBarTheme) {
+        self.theme = theme
     }
 
     private func synchronizeFrame() {
@@ -500,17 +644,15 @@ private final class CandidateBackgroundView: NSView {
         tintView.frame = bounds
         tintView.autoresizingMask = [.width, .height]
         tintView.wantsLayer = true
-        tintView.layer?.backgroundColor = NSColor(
-            srgbRed: 28.0 / 255.0,
-            green: 28.0 / 255.0,
-            blue: 26.0 / 255.0,
-            alpha: 0.90
-        ).cgColor
         addSubview(tintView)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func apply(theme: CandidateBarTheme) {
+        tintView.layer?.backgroundColor = theme.tintColor.cgColor
     }
 }
 
@@ -551,6 +693,7 @@ private final class CandidateItemView: NSControl {
     private var isCandidateSelected = false
     private var isHovered = false
     private var isPressed = false
+    private var theme: CandidateBarTheme = .current
 
     let index: Int
     var onPress: ((Int) -> Void)?
@@ -616,6 +759,11 @@ private final class CandidateItemView: NSControl {
         setAccessibilitySelected(isSelected)
         updateAppearance()
         needsLayout = true
+    }
+
+    func apply(theme: CandidateBarTheme) {
+        self.theme = theme
+        updateAppearance()
     }
 
     override func layout() {
@@ -693,29 +841,24 @@ private final class CandidateItemView: NSControl {
     private func updateAppearance() {
         let backgroundColor: NSColor
         if isCandidateSelected {
-            backgroundColor = NSColor(
-                srgbRed: 55.0 / 255.0,
-                green: 138.0 / 255.0,
-                blue: 221.0 / 255.0,
-                alpha: 1
-            )
+            backgroundColor = theme.selectedBackgroundColor
         } else if isPressed {
-            backgroundColor = NSColor.white.withAlphaComponent(0.12)
+            backgroundColor = theme.pressedFillColor
         } else if isHovered {
-            backgroundColor = NSColor.white.withAlphaComponent(0.07)
+            backgroundColor = theme.hoverFillColor
         } else {
             backgroundColor = .clear
         }
 
         shortcutLabel.textColor = isCandidateSelected
             ? NSColor.white.withAlphaComponent(0.92)
-            : NSColor.white.withAlphaComponent(0.68)
-        shortcutLabel.layer?.backgroundColor = NSColor.white.withAlphaComponent(
-            isCandidateSelected ? 0.22 : 0.10
-        ).cgColor
+            : theme.shortcutTextColor
+        shortcutLabel.layer?.backgroundColor = isCandidateSelected
+            ? NSColor.white.withAlphaComponent(0.22).cgColor
+            : theme.subtleFillColor.cgColor
         candidateLabel.textColor = isCandidateSelected
             ? .white
-            : NSColor.white.withAlphaComponent(0.76)
+            : theme.primaryTextColor
         layer?.backgroundColor = backgroundColor.cgColor
     }
 }
@@ -741,6 +884,7 @@ private final class ReverseLookupView: NSView {
     private let nextCodeButton: CandidatePageButton
     private var keycapViews: [ReverseLookupKeycapView] = []
     private var pageLabelLayoutWidth = Metrics.minimumPageLabelWidth
+    private var theme: CandidateBarTheme = .current
 
     var onPageChanged: ((Int) -> Void)?
 
@@ -762,12 +906,12 @@ private final class ReverseLookupView: NSView {
             textCell: noCodeLabel.stringValue
         )
         noCodeLabel.font = .systemFont(ofSize: 13, weight: .medium)
-        noCodeLabel.textColor = NSColor.white.withAlphaComponent(0.52)
+        noCodeLabel.textColor = theme.mutedTextColor
         noCodeLabel.lineBreakMode = .byClipping
 
         pageLabel.alignment = .center
         pageLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
-        pageLabel.textColor = NSColor.white.withAlphaComponent(0.58)
+        pageLabel.textColor = theme.secondaryTextColor
         pageLabel.lineBreakMode = .byClipping
         pageLabel.setAccessibilityLabel("拆碼分頁")
 
@@ -806,7 +950,7 @@ private final class ReverseLookupView: NSView {
             keycapView.removeFromSuperview()
         }
         keycapViews = code?.map {
-            let keycapView = ReverseLookupKeycapView(character: String($0))
+            let keycapView = ReverseLookupKeycapView(character: String($0), theme: theme)
             addSubview(keycapView)
             return keycapView
         } ?? []
@@ -841,6 +985,16 @@ private final class ReverseLookupView: NSView {
                 ?? "\(character)，沒有拆碼"
         )
         needsLayout = true
+    }
+
+    func apply(theme: CandidateBarTheme) {
+        self.theme = theme
+        noCodeLabel.textColor = theme.mutedTextColor
+        pageLabel.textColor = theme.secondaryTextColor
+        characterView.apply(theme: theme)
+        previousCodeButton.apply(theme: theme)
+        nextCodeButton.apply(theme: theme)
+        keycapViews.forEach { $0.apply(theme: theme) }
     }
 
     override func layout() {
@@ -927,6 +1081,7 @@ private final class ReverseLookupCharacterView: NSView {
 
     private let titleLabel: CandidateTextField
     private let characterLabel: CandidateTextField
+    private var theme: CandidateBarTheme = .current
 
     override init(frame frameRect: NSRect) {
         titleLabel = CandidateTextField(labelWithString: "字")
@@ -941,12 +1096,6 @@ private final class ReverseLookupCharacterView: NSView {
         )
 
         wantsLayer = true
-        layer?.backgroundColor = NSColor(
-            srgbRed: 55.0 / 255.0,
-            green: 138.0 / 255.0,
-            blue: 221.0 / 255.0,
-            alpha: 1
-        ).cgColor
         layer?.cornerRadius = 8
         layer?.cornerCurve = .continuous
 
@@ -972,6 +1121,7 @@ private final class ReverseLookupCharacterView: NSView {
         addSubview(characterLabel)
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
+        apply(theme: theme)
     }
 
     required init?(coder: NSCoder) {
@@ -982,6 +1132,11 @@ private final class ReverseLookupCharacterView: NSView {
         characterLabel.stringValue = character
         setAccessibilityLabel("反查字：\(character)")
         setAccessibilityValue(character)
+    }
+
+    func apply(theme: CandidateBarTheme) {
+        self.theme = theme
+        layer?.backgroundColor = theme.selectedBackgroundColor.cgColor
     }
 
     override func layout() {
@@ -1006,8 +1161,10 @@ private final class ReverseLookupCharacterView: NSView {
 @MainActor
 private final class ReverseLookupKeycapView: NSView {
     private let characterLabel: CandidateTextField
+    private var theme: CandidateBarTheme
 
-    init(character: String) {
+    init(character: String, theme: CandidateBarTheme) {
+        self.theme = theme
         characterLabel = CandidateTextField(labelWithString: character)
         super.init(frame: .zero)
 
@@ -1015,19 +1172,18 @@ private final class ReverseLookupKeycapView: NSView {
             textCell: characterLabel.stringValue
         )
         wantsLayer = true
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.10).cgColor
         layer?.cornerRadius = 8
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
 
         characterLabel.alignment = .center
         characterLabel.font = .monospacedSystemFont(ofSize: 16, weight: .medium)
-        characterLabel.textColor = NSColor.white.withAlphaComponent(0.88)
         addSubview(characterLabel)
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
         setAccessibilityLabel("字根：\(character)")
         setAccessibilityValue(character)
+        apply(theme: theme)
     }
 
     required init?(coder: NSCoder) {
@@ -1038,6 +1194,12 @@ private final class ReverseLookupKeycapView: NSView {
         super.layout()
         characterLabel.frame = bounds
     }
+
+    func apply(theme: CandidateBarTheme) {
+        self.theme = theme
+        layer?.backgroundColor = theme.subtleFillColor.cgColor
+        characterLabel.textColor = theme.keycapTextColor
+    }
 }
 
 @MainActor
@@ -1046,6 +1208,7 @@ private final class CandidatePageButton: NSControl {
     private var trackingAreaReference: NSTrackingArea?
     private var isHovered = false
     private var isPressed = false
+    private var theme: CandidateBarTheme = .current
     var onPress: (() -> Void)?
 
     init(symbolName: String, accessibilityLabel: String) {
@@ -1146,21 +1309,26 @@ private final class CandidatePageButton: NSControl {
         updateAppearance()
     }
 
+    func apply(theme: CandidateBarTheme) {
+        self.theme = theme
+        updateAppearance()
+    }
+
     private func updateAppearance() {
         let backgroundColor: NSColor
         if !isEnabled {
             backgroundColor = .clear
         } else if isPressed {
-            backgroundColor = NSColor.white.withAlphaComponent(0.12)
+            backgroundColor = theme.pressedFillColor
         } else if isHovered {
-            backgroundColor = NSColor.white.withAlphaComponent(0.07)
+            backgroundColor = theme.hoverFillColor
         } else {
             backgroundColor = .clear
         }
 
         imageView.contentTintColor = isEnabled
-            ? NSColor.white.withAlphaComponent(0.55)
-            : NSColor.white.withAlphaComponent(0.25)
+            ? theme.navigationIconColor
+            : theme.navigationIconColor.withAlphaComponent(0.42)
         layer?.backgroundColor = backgroundColor.cgColor
     }
 }

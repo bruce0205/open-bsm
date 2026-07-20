@@ -265,6 +265,17 @@ final class InputController: IMKInputController, @unchecked Sendable {
         let item = NSMenuItem(title: title, action: #selector(toggleInputMode(_:)), keyEquivalent: "")
         item.target = self
         menu.addItem(item)
+
+        let themeTitle = CandidateBarTheme.current == .dark
+            ? "切換為淺色候選列"
+            : "切換為深色候選列"
+        let themeItem = NSMenuItem(
+            title: themeTitle,
+            action: #selector(toggleCandidateBarTheme(_:)),
+            keyEquivalent: ""
+        )
+        themeItem.target = self
+        menu.addItem(themeItem)
         menu.addItem(.separator())
 
         let editUserTableItem = NSMenuItem(
@@ -291,6 +302,16 @@ final class InputController: IMKInputController, @unchecked Sendable {
             commitComposition(inputClient)
         }
         apply(engine.handle(.toggleInputMode), client: inputClient)
+    }
+
+    @objc fileprivate func toggleCandidateBarTheme(_ sender: Any? = nil) {
+        let theme: CandidateBarTheme = CandidateBarTheme.current == .dark
+            ? .light
+            : .dark
+        Task { @MainActor [weak self] in
+            CandidateBarTheme.select(theme)
+            self?.candidateBar.selectTheme(theme)
+        }
     }
 
     @objc private func editUserTable(_ sender: Any?) {

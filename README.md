@@ -31,6 +31,7 @@ provenance notice at the start of `Resources/bsm.txt`.
 - Personal code table at `~/Library/Application Support/OpenBSM/user.txt`.
 - Root-code reverse lookup for selected text with `Option + Shift + R`.
 - Input menu item for switching Chinese and English modes.
+- Candidate bar theme switch with dark and light modes.
 - Unit tests for table parsing and the input state machine.
 - Local build and per-user installation scripts.
 
@@ -43,7 +44,6 @@ provenance notice at the start of `Resources/bsm.txt`.
 
 ## Planned features
 
-- Candidate bar theme switch with dark and light modes.
 - Candidate frequency learning.
 - Wildcard and fuzzy lookup.
 - Full-width and half-width modes.
@@ -115,6 +115,13 @@ OpenBSM starts in Chinese mode. Type a root sequence and select a candidate:
 - `Shift + Space` switches between Chinese and direct English input. The hot
   key is registered only while OpenBSM is active and does not require Input
   Monitoring or Accessibility permission.
+
+### Candidate bar theme
+
+Open the input-method menu and choose **切換為淺色候選列** or
+**切換為深色候選列**. The current selection is saved and applied to both the
+candidate bar and root-code reverse lookup bar. OpenBSM starts in dark mode by
+default.
 
 ASCII letters are accepted as roots even before an exact candidate exists. A
 non-letter ASCII character is accepted only when the current root remains a
