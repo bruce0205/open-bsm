@@ -28,9 +28,9 @@ pkgbuild \
   "$COMPONENT_PKG"
 
 productbuild \
-  --package "$COMPONENT_PKG" \
-  --identifier "$PACKAGE_ID" \
-  --version "$VERSION" \
+  --distribution "$ROOT_DIR/Packaging/Distribution.xml" \
+  --package-path "$PKG_DIR" \
+  --resources "$ROOT_DIR/Packaging/Resources" \
   "$PRODUCT_PKG"
 
 echo "Packaged $PRODUCT_PKG"
