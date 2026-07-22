@@ -4,48 +4,26 @@ OpenBSM is an MIT-licensed Boshiamy-compatible input method for
 macOS on Apple Silicon. It is implemented with Swift and InputMethodKit, and
 focuses on Traditional Chinese input.
 
+請參閱[中文使用手冊](docs/user-manual.md)。
+
 The bundled code table is converted from
 [`chinese-opendesktop/cin-tables`](https://github.com/chinese-opendesktop/cin-tables/blob/master/boshiamy.cin).
 The table includes a non-commercial-use restriction from its source; see the
 provenance notice at the start of `Resources/bsm.txt`.
 
-## Version 0.1 scope
+## Current Status
 
-### Implemented
+- Version: `0.1.0`
+- Status: Pre-release
+- Platform: macOS `13+` on Apple Silicon
 
-- Native Apple Silicon executable.
-- InputMethodKit input controller and a custom native candidate bar.
-- Plain-text code table loader with normalized, case-insensitive roots.
-- Composition of roots up to five characters with inline marked text.
-- Exact-match candidate lookup with nine candidates per page.
-- Arrow keys move candidate selection; `Page Up` and `Page Down` change pages.
-- Mouse-selectable candidates and page controls in one integrated candidate bar.
-- `Space` or `Enter` to commit the selected candidate.
-- Number keys `1` through `9` to select a candidate from the current page.
-- `Backspace` to remove the last root.
-- `Escape` to cancel composition.
-- `Shift + Space` to switch between Chinese and direct English input, including
-  terminal clients such as iTerm2, Ghostty, and the VS Code integrated terminal.
-- Punctuation and symbol input exclusively through code-table roots such as
-  `.s`, `,s`, `[[`, and `]]`; there are no hard-coded punctuation conversions.
-- Personal code table at `~/Library/Application Support/OpenBSM/user.txt`.
-- Root-code reverse lookup for selected text with `Option + Shift + R`.
-- Input menu item for switching Chinese and English modes.
-- User-selectable per-app or global Chinese and English mode memory.
-- Global full-width and half-width modes with `Control + Shift + Space`.
-- Candidate frequency learning with local, persistent usage history.
-- Candidate bar theme switch with dark and light modes.
-- Unit tests for table parsing and the input state machine.
-- Local build and per-user installation scripts.
+Release history is tracked in [CHANGELOG.md](CHANGELOG.md)。
+The release process is documented in [Release Workflow](docs/workflows/release.md)。
 
-### Remaining before the first public release
+The current version scope and release criteria are documented in
+[v0.1.0 Release Scope](docs/release/v0.1.0.md).
 
-- Validate behavior in additional apps such as Safari and Microsoft Office.
-- Add an original app icon.
-- Add Developer ID signing, notarization, and a distributable installer.
-- Add a settings window for shortcuts and table management.
-
-## Planned features
+## Future features
 
 - Wildcard and fuzzy lookup.
 - User dictionary import, export, and backup.
@@ -274,37 +252,4 @@ analytics, or telemetry.
 
 ## Roadmap
 
-### AI字根助手
-
-#### 被動預測
-
-> Ghost Suggestion
-
-不用等使用者主動呼叫 AI 助手，而是在每次 commit 一個字/詞之後，背景非同步用上下文預測下一個可能的詞，以淡色 ghost text 形式顯示在游標後方（類似手機輸入法的預測文字）。
-
-Ghost Text 永遠只顯示一個（最高信心值的候選），並且不會自動 commit，使用者可以選擇忽略或按下 right arrow 直接 commit top-1 的ghost text。
-
-且能清楚的視覺提示告訴使用者「還有更多」，在 ghost text 旁邊加上 pagination 和 navigation 極簡標示，像root-code reverse lookup一樣，按下 hotkey 可以 navigate 到下一個 candidate 或是直接 click navigation button。
-
-技術上：
-
-- 建議優先用 Local provider（Ollama）做這層，因為觸發頻率高（每次 commit 都可能觸發），走 Cloud API 成本會快速累積
-- 要做 debounce/節流 (idle timer 為 500ms)，例如只在詞/句邊界觸發，而非每個字元
-
-edge case：
-
-- api 延遲：若 AI 建議回傳時，使用者已經開始新的 composition 或已移動游標，該次回應直接丟棄，不顯示、不排隊。
-- api 回傳空白：視為沒有 ghost text，使用者不會察覺到任何差異。
-- api 未設定或失敗：視為沒有 ghost text，使用者不會察覺到任何差異。
-- api 回傳的 ghost text 與使用者已經 commit 的文字重疊：視為沒有 ghost text，使用者不會察覺到任何差異。
-
-#### 主動查詢
-
-透過某個 hotkey 主動呼叫 AI 小幫手、輸入自然語言描述時，把最近的前文一併塞進 prompt，讓 AI 用「描述 + 上下文」雙重訊號做消歧
-prompt 範例：
-
-```
-使用者不知道某個字怎麼拆碼，用自然語言描述：「\(desc)」
-\(precedingContext.map { "前文語境：\($0)" } ?? "")
-請優先參考前文語境，推論這可能會是哪些字，依據可能性高低排序，並回傳前 5 個候選字
-```
+- [AI Assistant](docs/specification/ai-assistant/README.md) — Proposed
