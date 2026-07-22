@@ -33,6 +33,7 @@ provenance notice at the start of `Resources/bsm.txt`.
 - Input menu item for switching Chinese and English modes.
 - User-selectable per-app or global Chinese and English mode memory.
 - Global full-width and half-width modes with `Control + Shift + Space`.
+- Candidate frequency learning with local, persistent usage history.
 - Candidate bar theme switch with dark and light modes.
 - Unit tests for table parsing and the input state machine.
 - Local build and per-user installation scripts.
@@ -46,7 +47,6 @@ provenance notice at the start of `Resources/bsm.txt`.
 
 ## Planned features
 
-- Candidate frequency learning.
 - Wildcard and fuzzy lookup.
 - User dictionary import, export, and backup.
 - Optional iCloud dictionary synchronization.
@@ -143,6 +143,23 @@ Open the input-method menu and choose **切換為淺色候選列** or
 **切換為深色候選列**. The current selection is saved and applied to both the
 candidate bar and root-code reverse lookup bar. OpenBSM starts in dark mode by
 default.
+
+### Candidate frequency learning
+
+When a candidate is committed with `Space`, `Enter`, a number key, or a mouse
+click, OpenBSM records its usage for the current root. Candidates are ordered by
+usage count, then by the most recent selection, while unlearned candidates keep
+their original code-table order. Learning data is stored locally at:
+
+```text
+~/Library/Application Support/OpenBSM/frequency.json
+```
+
+Writes are debounced and atomic. Reloading the personal code table removes
+learning records that no longer exist in the merged bundled and personal table.
+If the same root and candidate still exist in the bundled table, their learning
+record is preserved. Choose **重置候選字學習…** from the input-method menu and
+confirm the warning to delete all learning history.
 
 ASCII letters are accepted as roots even before an exact candidate exists. A
 non-letter ASCII character is accepted only when the current root remains a

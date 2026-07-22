@@ -138,6 +138,7 @@ final class InputController: IMKInputController, @unchecked Sendable {
     private var reverseLookupCodeIndex = 0
     private var candidateBar: CandidateBar { sharedCandidateBar }
     private var characterWidthIndicator: CharacterWidthIndicator { sharedCharacterWidthIndicator }
+    private var candidateFrequencyStore: CandidateFrequencyStore { sharedCandidateFrequencyStore }
 
     override init!(server: IMKServer!, delegate: Any!, client inputClient: Any!) {
         let bundledTable: CodeTable
@@ -156,6 +157,10 @@ final class InputController: IMKInputController, @unchecked Sendable {
             _ = engine.handle(.toggleInputMode)
         }
         super.init(server: server, delegate: delegate, client: inputClient)
+        MainActor.assumeIsolated {
+            candidateFrequencyStore.prune(to: codeTable)
+        }
+        rebuildEngine()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(reloadUserTableNotification(_:)),
@@ -265,7 +270,7 @@ final class InputController: IMKInputController, @unchecked Sendable {
         }
 
         guard let command else { return false }
-        let result = engine.handle(command)
+        let result = handleEngineCommand(command)
         if result == .passThrough {
             return insertFullWidthTextIfNeeded(from: event, client: sender)
         }
@@ -283,6 +288,7 @@ final class InputController: IMKInputController, @unchecked Sendable {
 
     override func activateServer(_ sender: Any!) {
         super.activateServer(sender)
+        rebuildEngine()
         restoreInputMode()
         MainActor.assumeIsolated {
             InputHotKeyManager.shared.activate(self)
@@ -310,6 +316,7 @@ final class InputController: IMKInputController, @unchecked Sendable {
         MainActor.assumeIsolated {
             InputHotKeyManager.shared.deactivate(self)
             characterWidthIndicator.hide()
+            candidateFrequencyStore.flush()
         }
         hideCandidates()
         super.inputControllerWillClose()
@@ -372,6 +379,14 @@ final class InputController: IMKInputController, @unchecked Sendable {
         )
         reloadUserTableItem.target = self
         menu.addItem(reloadUserTableItem)
+
+        let resetFrequencyItem = NSMenuItem(
+            title: "重置候選字學習…",
+            action: #selector(resetCandidateFrequency(_:)),
+            keyEquivalent: ""
+        )
+        resetFrequencyItem.target = self
+        menu.addItem(resetFrequencyItem)
         return menu
     }
 
@@ -420,6 +435,25 @@ final class InputController: IMKInputController, @unchecked Sendable {
         NotificationCenter.default.post(name: Self.userTableDidReload, object: nil)
     }
 
+    @objc private func resetCandidateFrequency(_ sender: Any?) {
+        let shouldReset = MainActor.assumeIsolated {
+            let alert = NSAlert()
+            alert.messageText = "重置候選字學習？"
+            alert.informativeText = "所有候選字的使用次數與最近使用紀錄都會被刪除。"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "重置")
+            alert.addButton(withTitle: "取消")
+            return alert.runModal() == .alertFirstButtonReturn
+        }
+        guard shouldReset else { return }
+
+        MainActor.assumeIsolated {
+            candidateFrequencyStore.reset()
+        }
+        rebuildEngine()
+        hideCandidates()
+    }
+
     @objc private func reloadUserTableNotification(_ notification: Notification) {
         let inputClient = client()
         if !engine.buffer.isEmpty {
@@ -428,10 +462,10 @@ final class InputController: IMKInputController, @unchecked Sendable {
 
         let isEnglishMode = engine.isEnglishMode
         codeTable = bundledCodeTable.merging(Self.loadUserTable(), otherCandidatesFirst: true)
-        engine = InputEngine(codeTable: codeTable)
-        if isEnglishMode {
-            _ = engine.handle(.toggleInputMode)
+        MainActor.assumeIsolated {
+            candidateFrequencyStore.prune(to: codeTable)
         }
+        rebuildEngine(preservingEnglishMode: isEnglishMode)
         hideCandidates()
     }
 
@@ -505,6 +539,41 @@ final class InputController: IMKInputController, @unchecked Sendable {
         apply(engine.handle(.toggleInputMode), client: client())
     }
 
+    private func handleEngineCommand(_ command: InputCommand) -> InputResult {
+        let code = engine.buffer
+        let candidates = engine.candidates
+        let result = engine.handle(command)
+        guard case .commit(let candidate) = result,
+              learnCandidate(candidate, for: code, candidates: candidates) else {
+            return result
+        }
+        rebuildEngine()
+        return result
+    }
+
+    private func learnCandidate(
+        _ candidate: String,
+        for code: String,
+        candidates: [String]
+    ) -> Bool {
+        guard !code.isEmpty, candidates.contains(candidate) else { return false }
+        MainActor.assumeIsolated {
+            candidateFrequencyStore.record(code: code, candidate: candidate)
+        }
+        return true
+    }
+
+    private func rebuildEngine(preservingEnglishMode: Bool? = nil) {
+        let isEnglishMode = preservingEnglishMode ?? engine.isEnglishMode
+        let frequency = MainActor.assumeIsolated {
+            candidateFrequencyStore.snapshot
+        }
+        engine = InputEngine(codeTable: codeTable, candidateFrequency: frequency)
+        if isEnglishMode {
+            _ = engine.handle(.toggleInputMode)
+        }
+    }
+
     private func selectCharacterWidth(_ width: CharacterWidth) {
         characterWidthPreference.current = width
         MainActor.assumeIsolated {
@@ -527,7 +596,11 @@ final class InputController: IMKInputController, @unchecked Sendable {
     }
 
     private func commit(_ text: String, client sender: Any?) {
+        let didLearn = learnCandidate(text, for: engine.buffer, candidates: engine.candidates)
         engine.reset()
+        if didLearn {
+            rebuildEngine()
+        }
         insert(text, client: sender)
         hideCandidates()
     }
@@ -654,14 +727,14 @@ final class InputController: IMKInputController, @unchecked Sendable {
                         guard let self else { return }
                         let pageStart = self.engine.selectedCandidateIndex
                             - self.engine.selectedCandidateIndexInPage
-                        let result = self.engine.handle(
+                        let result = self.handleEngineCommand(
                             .selectCandidate(pageStart + index)
                         )
                         self.apply(result, client: self.client())
                     },
                     onPageChanged: { [weak self] offset in
                         guard let self else { return }
-                        let result = self.engine.handle(.movePage(offset))
+                        let result = self.handleEngineCommand(.movePage(offset))
                         self.apply(result, client: self.client())
                     }
                 )

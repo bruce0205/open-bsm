@@ -72,6 +72,10 @@ public struct CodeTable: Sendable {
         reverseEntries[candidate, default: []]
     }
 
+    public func contains(candidate: String, for code: String) -> Bool {
+        candidates(for: code).contains(candidate)
+    }
+
     public func hasCode(withPrefix prefix: String) -> Bool {
         let normalizedPrefix = Self.normalize(prefix)
         return entries.keys.contains { $0.hasPrefix(normalizedPrefix) }

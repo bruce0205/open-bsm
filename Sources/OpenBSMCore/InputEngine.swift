@@ -29,10 +29,16 @@ public struct InputEngine: Sendable {
     public private(set) var selectedCandidateIndex = 0
 
     private let codeTable: CodeTable
+    private let candidateFrequency: CandidateFrequency
     private let maximumCodeLength: Int
 
-    public init(codeTable: CodeTable, maximumCodeLength: Int = 5) {
+    public init(
+        codeTable: CodeTable,
+        candidateFrequency: CandidateFrequency = CandidateFrequency(),
+        maximumCodeLength: Int = 5
+    ) {
         self.codeTable = codeTable
+        self.candidateFrequency = candidateFrequency
         self.maximumCodeLength = maximumCodeLength
     }
 
@@ -127,7 +133,10 @@ public struct InputEngine: Sendable {
     }
 
     private mutating func refreshCandidates() -> InputResult {
-        candidates = codeTable.candidates(for: buffer)
+        candidates = candidateFrequency.rankedCandidates(
+            codeTable.candidates(for: buffer),
+            for: buffer
+        )
         selectedCandidateIndex = 0
         return .composing(text: buffer, candidates: candidates)
     }
