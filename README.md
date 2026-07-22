@@ -31,6 +31,8 @@ provenance notice at the start of `Resources/bsm.txt`.
 - Personal code table at `~/Library/Application Support/OpenBSM/user.txt`.
 - Root-code reverse lookup for selected text with `Option + Shift + R`.
 - Input menu item for switching Chinese and English modes.
+- User-selectable per-app or global Chinese and English mode memory.
+- Global full-width and half-width modes with `Control + Shift + Space`.
 - Candidate bar theme switch with dark and light modes.
 - Unit tests for table parsing and the input state machine.
 - Local build and per-user installation scripts.
@@ -46,9 +48,7 @@ provenance notice at the start of `Resources/bsm.txt`.
 
 - Candidate frequency learning.
 - Wildcard and fuzzy lookup.
-- Full-width and half-width modes.
 - User dictionary import, export, and backup.
-- Per-app Chinese or English mode memory.
 - Optional iCloud dictionary synchronization.
 
 ## Requirements
@@ -115,6 +115,27 @@ OpenBSM starts in Chinese mode. Type a root sequence and select a candidate:
 - `Shift + Space` switches between Chinese and direct English input. The hot
   key is registered only while OpenBSM is active and does not require Input
   Monitoring or Accessibility permission.
+- `Control + Shift + Space` switches between half-width and full-width input.
+
+### Chinese and English mode memory
+
+Open the input-method menu and choose **中英文模式記憶：依 App** or
+**中英文模式記憶：所有 App 共用** to toggle the memory scope. Per-app memory
+is the default and identifies each app by its bundle identifier. Both settings
+persist across app and input-method restarts. When switching settings, the
+active app's current mode is retained.
+
+### Character width
+
+Open the input-method menu and choose **字元寬度：半型** or **字元寬度：全型**
+to toggle the current width. Character width is shared by all apps, persists
+across input-method restarts, and defaults to half-width. Switching with
+`Control + Shift + Space` briefly shows **半** or **全** near the insertion
+point. The candidate bar also shows **全** while full-width mode is active.
+
+Full-width mode converts directly entered printable ASCII characters to their
+Unicode full-width equivalents, including `Space`. Code-table roots, candidate
+selection keys, navigation keys, and shortcuts are not converted.
 
 ### Candidate bar theme
 
@@ -128,10 +149,11 @@ non-letter ASCII character is accepted only when the current root remains a
 prefix of at least one code-table entry. Other characters pass through to the
 current app without committing or cancelling an active composition.
 
-Punctuation and symbols follow exactly the same lookup path as Chinese
-characters. For example, type `.s` and press `Space` to commit `♠`. OpenBSM does
-not automatically transform `!` into `！` or provide a separate punctuation
-mode; add or modify mappings in `Resources/bsm.txt` instead.
+Punctuation and symbols first follow the same lookup path as Chinese
+characters. For example, type `.s` and press `Space` to commit `♠`. In
+full-width mode, directly entered ASCII punctuation that is not handled as a
+code-table root is converted to its full-width equivalent. Add or modify root
+mappings in `Resources/bsm.txt` to customize code-table punctuation.
 
 ## Personal code table
 

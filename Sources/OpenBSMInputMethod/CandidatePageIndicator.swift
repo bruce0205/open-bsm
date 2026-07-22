@@ -1,5 +1,6 @@
 import AppKit
 @preconcurrency import InputMethodKit
+import OpenBSMCore
 
 enum CandidateBarTheme: String {
     case dark
@@ -142,6 +143,8 @@ final class CandidateBar {
         static let screenInset: CGFloat = 8
         static let reverseLookupWidth: CGFloat = 374
         static let reverseLookupHeight: CGFloat = 52
+        static let widthIndicatorWidth: CGFloat = 22
+        static let widthIndicatorSpacing: CGFloat = 6
     }
 
     private struct Layout {
@@ -155,6 +158,7 @@ final class CandidateBar {
     private let candidateViews: [CandidateItemView]
     private let previousPageButton: CandidatePageButton
     private let pageLabel: NSTextField
+    private let widthIndicatorLabel: NSTextField
     private let nextPageButton: CandidatePageButton
     private let reverseLookupView: ReverseLookupView
 
@@ -176,6 +180,7 @@ final class CandidateBar {
             previousPageButton.apply(theme: theme)
             nextPageButton.apply(theme: theme)
             pageLabel.textColor = theme.secondaryTextColor
+            widthIndicatorLabel.textColor = theme.mutedTextColor
             reverseLookupView.apply(theme: theme)
         }
     }
@@ -194,6 +199,7 @@ final class CandidateBar {
             accessibilityLabel: "上一頁"
         )
         let pageLabel = NSTextField(labelWithString: "")
+        let widthIndicatorLabel = NSTextField(labelWithString: "全")
         let nextPageButton = CandidatePageButton(
             symbolName: "chevron.right",
             accessibilityLabel: "下一頁"
@@ -208,10 +214,17 @@ final class CandidateBar {
         pageLabel.lineBreakMode = .byClipping
         pageLabel.setAccessibilityLabel("分頁")
 
+        widthIndicatorLabel.alignment = .center
+        widthIndicatorLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        widthIndicatorLabel.textColor = theme.mutedTextColor
+        widthIndicatorLabel.isHidden = true
+        widthIndicatorLabel.setAccessibilityLabel("全型模式")
+
         for candidateView in candidateViews {
             backgroundView.addSubview(candidateView)
         }
         backgroundView.addSubview(pageLabel)
+        backgroundView.addSubview(widthIndicatorLabel)
         backgroundView.addSubview(previousPageButton)
         backgroundView.addSubview(nextPageButton)
         backgroundView.addSubview(reverseLookupView)
@@ -244,6 +257,7 @@ final class CandidateBar {
         self.candidateViews = candidateViews
         self.previousPageButton = previousPageButton
         self.pageLabel = pageLabel
+        self.widthIndicatorLabel = widthIndicatorLabel
         self.nextPageButton = nextPageButton
         self.reverseLookupView = reverseLookupView
 
@@ -269,6 +283,7 @@ final class CandidateBar {
         selectedIndex: Int,
         currentPage: Int,
         totalPages: Int,
+        characterWidth: CharacterWidth,
         client: any IMKTextInput,
         onCandidateSelected: @escaping (Int) -> Void,
         onPageChanged: @escaping (Int) -> Void
@@ -289,6 +304,7 @@ final class CandidateBar {
         displaysPagination = totalPages > 1
         isShowingReverseLookup = false
         reverseLookupView.isHidden = true
+        widthIndicatorLabel.isHidden = characterWidth != .fullWidth
         revision += 1
 
         for (index, candidateView) in candidateViews.enumerated() {
@@ -350,6 +366,7 @@ final class CandidateBar {
         self.totalPages = totalPages
         displaysPagination = false
         isShowingReverseLookup = true
+        widthIndicatorLabel.isHidden = true
         revision += 1
 
         for candidateView in candidateViews {
@@ -389,12 +406,19 @@ final class CandidateBar {
         displaysPagination = false
         isShowingReverseLookup = false
         reverseLookupView.isHidden = true
+        widthIndicatorLabel.isHidden = true
         lastAnchor = nil
         panel.orderOut(nil)
     }
 
     func selectTheme(_ theme: CandidateBarTheme) {
         self.theme = theme
+    }
+
+    func selectCharacterWidth(_ width: CharacterWidth) {
+        widthIndicatorLabel.isHidden = width != .fullWidth || isShowingReverseLookup
+        guard owner != nil else { return }
+        synchronizeFrame()
     }
 
     private func synchronizeFrame() {
@@ -478,7 +502,13 @@ final class CandidateBar {
             paginationWidth = 0
         }
 
-        let fixedWidth = Metrics.horizontalInset * 2 + itemSpacing + paginationWidth
+        let widthIndicatorWidth = widthIndicatorLabel.isHidden
+            ? 0
+            : Metrics.widthIndicatorSpacing + Metrics.widthIndicatorWidth
+        let fixedWidth = Metrics.horizontalInset * 2
+            + itemSpacing
+            + widthIndicatorWidth
+            + paginationWidth
         let maximumWidth = max(
             1,
             min(
@@ -544,6 +574,17 @@ final class CandidateBar {
             }
         }
 
+        if !widthIndicatorLabel.isHidden {
+            x += Metrics.widthIndicatorSpacing
+            widthIndicatorLabel.frame = NSRect(
+                x: x,
+                y: Metrics.verticalInset,
+                width: Metrics.widthIndicatorWidth,
+                height: Metrics.itemHeight
+            )
+            x += Metrics.widthIndicatorWidth
+        }
+
         guard displaysPagination else { return }
         x += Metrics.pageNavigationSpacing
 
@@ -604,6 +645,163 @@ final class CandidateBar {
         origin.y = min(
             max(origin.y, visibleFrame.minY),
             visibleFrame.maxY - size.height
+        )
+        return origin
+    }
+
+    private func screen(containing rect: NSRect) -> NSScreen? {
+        let center = NSPoint(x: rect.midX, y: rect.midY)
+        return NSScreen.screens.first { NSPointInRect(center, $0.frame) }
+            ?? NSScreen.screens.first { $0.frame.intersects(rect) }
+            ?? NSScreen.main
+    }
+}
+
+@MainActor
+final class CharacterWidthIndicator {
+    private enum Metrics {
+        static let size = NSSize(width: 44, height: 44)
+        static let anchorGap: CGFloat = 6
+        static let screenInset: CGFloat = 8
+        static let displayDuration = Duration.milliseconds(800)
+    }
+
+    private let panel: CandidatePanel
+    private let backgroundView: CandidateBackgroundView
+    private let label: NSTextField
+    private var revision = 0
+
+    init() {
+        panel = CandidatePanel(
+            contentRect: .zero,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        backgroundView = CandidateBackgroundView(
+            frame: NSRect(origin: .zero, size: Metrics.size)
+        )
+        label = NSTextField(labelWithString: "")
+
+        backgroundView.autoresizingMask = [.width, .height]
+        label.frame = backgroundView.bounds
+        label.autoresizingMask = [.width, .height]
+        label.cell = VerticallyCenteredTextFieldCell(textCell: "")
+        label.alignment = .center
+        label.font = .systemFont(ofSize: 20, weight: .semibold)
+        label.setAccessibilityElement(true)
+        label.setAccessibilityRole(.staticText)
+        backgroundView.addSubview(label)
+
+        panel.contentView = backgroundView
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = false
+        panel.canHide = false
+        panel.isReleasedWhenClosed = false
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true
+        panel.animationBehavior = .none
+        panel.collectionBehavior = [
+            .canJoinAllApplications,
+            .canJoinAllSpaces,
+            .fullScreenAuxiliary,
+            .transient,
+            .ignoresCycle,
+        ]
+    }
+
+    func show(width: CharacterWidth, client: any IMKTextInput) {
+        let theme = CandidateBarTheme.current
+        let text = width == .fullWidth ? "全" : "半"
+        label.stringValue = text
+        label.textColor = theme == .light
+            ? theme.secondaryTextColor
+            : theme.keycapTextColor
+        label.setAccessibilityLabel(width == .fullWidth ? "全型模式" : "半型模式")
+        backgroundView.apply(theme: theme)
+
+        guard let anchor = inputAnchor(for: client),
+              let screen = screen(containing: anchor.rect) else {
+            return
+        }
+
+        revision += 1
+        let expectedRevision = revision
+        panel.level = NSWindow.Level(rawValue: Int(client.windowLevel()) + 1)
+        panel.setFrame(
+            NSRect(
+                origin: panelOrigin(anchor: anchor, screen: screen),
+                size: Metrics.size
+            ),
+            display: true
+        )
+        panel.orderFrontRegardless()
+
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Metrics.displayDuration)
+            guard let self, self.revision == expectedRevision else { return }
+            self.panel.orderOut(nil)
+        }
+    }
+
+    func hide() {
+        revision += 1
+        panel.orderOut(nil)
+    }
+
+    private func inputAnchor(
+        for inputClient: any IMKTextInput
+    ) -> (rect: NSRect, isHorizontal: Bool)? {
+        var lineRect = NSRect.zero
+        let attributes = inputClient.attributes(
+            forCharacterIndex: 0,
+            lineHeightRectangle: &lineRect
+        )
+        let rect = lineRect.standardized
+        guard rect.origin.x.isFinite,
+              rect.origin.y.isFinite,
+              rect.height.isFinite,
+              rect.height > 0 else {
+            return nil
+        }
+        let isHorizontal =
+            (attributes?[IMKTextOrientationName] as? NSNumber)?.boolValue ?? true
+        return (rect, isHorizontal)
+    }
+
+    private func panelOrigin(
+        anchor: (rect: NSRect, isHorizontal: Bool),
+        screen: NSScreen
+    ) -> NSPoint {
+        let visibleFrame = screen.visibleFrame.insetBy(
+            dx: Metrics.screenInset,
+            dy: Metrics.screenInset
+        )
+        var origin: NSPoint
+
+        if anchor.isHorizontal {
+            let belowY = anchor.rect.minY - Metrics.anchorGap - Metrics.size.height
+            let y = belowY >= visibleFrame.minY
+                ? belowY
+                : anchor.rect.maxY + Metrics.anchorGap
+            origin = NSPoint(x: anchor.rect.minX, y: y)
+        } else {
+            let rightX = anchor.rect.maxX + Metrics.anchorGap
+            let x = rightX + Metrics.size.width <= visibleFrame.maxX
+                ? rightX
+                : anchor.rect.minX - Metrics.anchorGap - Metrics.size.width
+            origin = NSPoint(x: x, y: anchor.rect.maxY - Metrics.size.height)
+        }
+
+        origin.x = min(
+            max(origin.x, visibleFrame.minX),
+            visibleFrame.maxX - Metrics.size.width
+        )
+        origin.y = min(
+            max(origin.y, visibleFrame.minY),
+            visibleFrame.maxY - Metrics.size.height
         )
         return origin
     }

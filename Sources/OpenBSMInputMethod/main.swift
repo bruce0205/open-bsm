@@ -9,7 +9,8 @@ guard let bundleIdentifier = Bundle.main.bundleIdentifier,
 }
 
 let sharedCandidateBar = CandidateBar()
+let sharedCharacterWidthIndicator = CharacterWidthIndicator()
 
-withExtendedLifetime((inputMethodServer, sharedCandidateBar)) {
+withExtendedLifetime((inputMethodServer, sharedCandidateBar, sharedCharacterWidthIndicator)) {
     app.run()
 }
