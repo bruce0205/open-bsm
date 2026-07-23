@@ -163,6 +163,9 @@ Changelog 範例：
 ### Fixed
 ```
 
+GitHub branch、tag、artifact 與 Release 的實際操作流程，請參閱
+[GitHub Release Workflow](github-release.md)。
+
 ## Versioning Rules
 
 - 使用 Semantic Versioning 格式：`MAJOR.MINOR.PATCH`。
