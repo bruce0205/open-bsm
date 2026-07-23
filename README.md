@@ -15,6 +15,8 @@ provenance notice at the start of `Resources/bsm.txt`.
 
 - Version: `0.1.0`
 - Status: Pre-release
+- Release stage: Beta
+- Release identifier: `0.1.0-beta.1`
 - Platform: macOS `13+` on Apple Silicon
 
 Release history is tracked in [CHANGELOG.md](CHANGELOG.md)。

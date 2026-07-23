@@ -1,6 +1,6 @@
 # Release Workflow
 
-本文件定義 OpenBSM 從需求、實作到正式發布的版本流程。
+本文件定義 OpenBSM 從需求、實作到預發布與正式發布的版本流程。
 
 ## Workflow
 
@@ -14,11 +14,19 @@ Implementation
 Release preparation
     ├─ 建立 docs/release/vX.Y.Z.md
     ├─ Status: Pre-release
+    ├─ 設定 Release Stage：Alpha、Beta 或 GA
+    ├─ 設定 Release Identifier，例如 0.1.0-beta.1
     ├─ 確認 [Unreleased] 內容完整
     └─ 進行測試、審查與 release checklist
     ↓
-正式發布
+預發布（Alpha／Beta）
+    ├─ Status: Pre-release
+    ├─ 建立 Git tag：vX.Y.Z-alpha.N 或 vX.Y.Z-beta.N
+    └─ 建立並保存預發布 artifact
+    ↓
+正式發布（GA）
     ├─ Status: Released
+    ├─ Release Stage: GA
     ├─ 加入 Released date
     ├─ 將 [Unreleased] 改為 [X.Y.Z] - YYYY-MM-DD
     ├─ 建立新的空白 [Unreleased]
@@ -67,6 +75,32 @@ docs/release/vX.Y.Z.md
 Pre-release
 ```
 
+每個版本生命週期只建立一份 release scope，例如：
+
+```text
+docs/release/v0.1.0.md
+```
+
+文件使用以下欄位區分預發布階段與實際發布版本：
+
+```markdown
+## Status
+
+Pre-release
+
+## Release Stage
+
+Beta
+
+## Release Identifier
+
+0.1.0-beta.1
+```
+
+`Release Stage` 可使用 `Alpha`、`Beta` 或 `GA`。同一階段有多次發布時，
+使用 `Release Identifier` 的序號區分，例如 `0.1.0-beta.1` 與
+`0.1.0-beta.2`。
+
 Release preparation 應包含：
 
 - 確認該版本的 implemented scope。
@@ -76,17 +110,28 @@ Release preparation 應包含：
 - 完成 release checklist。
 - 確認版本號、安裝套件與文件內容一致。
 
-### Released
+### Pre-release（Alpha／Beta）
+
+完成預發布測試與 checklist 後：
+
+1. 保持版本文件的狀態為 `Pre-release`。
+2. 設定對應的 `Release Stage` 與 `Release Identifier`。
+3. 在 Changelog 記錄實際預發布版本，例如 `[0.1.0-beta.1]`。
+4. 建立對應 Git tag，例如 `v0.1.0-beta.1`。
+5. 建立並保存預發布 artifact。
+
+### Released（GA）
 
 完成最後測試、審查與 release checklist，並正式發布版本後：
 
 1. 將版本文件的狀態改為 `Released`。
-2. 加入正式發布日期。
-3. 將 `CHANGELOG.md` 的 `[Unreleased]` 內容整理至版本區段。
-4. 使用正式發布日期建立 Changelog entry。
-5. 建立 Git tag，例如 `v0.1.0`。
-6. 建立並保存正式 release artifact。
-7. 更新 README 的 current version 與 project status。
+2. 將 `Release Stage` 設為 `GA`。
+3. 加入正式發布日期。
+4. 將 `CHANGELOG.md` 的 `[Unreleased]` 內容整理至版本區段。
+5. 使用正式發布日期建立 Changelog entry。
+6. 建立 Git tag，例如 `v0.1.0`。
+7. 建立並保存正式 release artifact。
+8. 更新 README 的 current version 與 project status。
 
 版本文件範例：
 
@@ -94,6 +139,10 @@ Release preparation 應包含：
 ## Status
 
 Released
+
+## Release Stage
+
+GA
 
 ## Release Date
 
@@ -117,7 +166,15 @@ Changelog 範例：
 ## Versioning Rules
 
 - 使用 Semantic Versioning 格式：`MAJOR.MINOR.PATCH`。
-- Git tag 使用 `v` 加上版本號，例如 `v0.1.0`。
-- `docs/release/` 的版本文件名稱、README 顯示版本、Bundle version 與 Git tag 應保持一致。
+- 預發布版本使用 Semantic Versioning 的 prerelease identifier，例如
+  `0.1.0-alpha.1` 或 `0.1.0-beta.1`。
+- Git tag 使用 `v` 加上完整 Release Identifier，例如 `v0.1.0-beta.1`；GA
+  版本則使用 `v0.1.0`。
+- `docs/release/` 的版本文件以 base version 命名，例如 `v0.1.0.md`；
+  `Release Identifier` 記錄實際 Alpha、Beta 或 GA 版本。
+- README 顯示的版本與 `Resources/Info.plist` 的 Bundle version 應保持一致；
+  預發布階段另外記錄 `Release Stage` 與 `Release Identifier`。
 - 尚未正式發布的變更放在 `CHANGELOG.md` 的 `[Unreleased]` 區段。
-- Changelog 的發布日期使用正式發布日，不使用文件建立日或測試開始日。
+- Changelog 應以實際 Release Identifier 建立預發布或 GA 區段，例如
+  `[0.1.0-beta.1]` 與 `[0.1.0]`。
+- Changelog 的發布日期使用實際發布日，不使用文件建立日或測試開始日。

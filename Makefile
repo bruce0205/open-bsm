@@ -1,4 +1,4 @@
-.PHONY: build test install uninstall reload dmg pkg clean
+.PHONY: build test install uninstall reload dmg pkg pkg-x86_64 clean
 
 build:
 	./Scripts/build.sh
@@ -23,6 +23,9 @@ dmg:
 
 pkg:
 	./Scripts/package-pkg.sh
+
+pkg-x86_64:
+	OPENBSM_ARCH=x86_64 ./Scripts/package-pkg.sh
 
 clean:
 	swift package clean
