@@ -27,8 +27,12 @@ git push origin dev
 
 建立 Pull Request：
 
-```text
-dev → main
+```zsh
+gh pr create \
+  --base main \
+  --head dev \
+  --title "chore: prepare v0.1.0-beta.1 release" \
+  --body "Prepare v0.1.0-beta.1 release"
 ```
 
 ## 2. 從 `main` 建立 Release tag
