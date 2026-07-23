@@ -9,7 +9,16 @@ guard let bundleIdentifier = Bundle.main.bundleIdentifier,
 }
 
 let sharedCandidateBar = CandidateBar()
+let sharedCharacterWidthIndicator = CharacterWidthIndicator()
+let sharedCandidateFrequencyStore = CandidateFrequencyStore()
 
-withExtendedLifetime((inputMethodServer, sharedCandidateBar)) {
+withExtendedLifetime(
+    (
+        inputMethodServer,
+        sharedCandidateBar,
+        sharedCharacterWidthIndicator,
+        sharedCandidateFrequencyStore
+    )
+) {
     app.run()
 }

@@ -4,50 +4,31 @@ OpenBSM is an MIT-licensed Boshiamy-compatible input method for
 macOS on Apple Silicon. It is implemented with Swift and InputMethodKit, and
 focuses on Traditional Chinese input.
 
+請參閱[中文使用手冊](docs/user-manual.md)。
+
 The bundled code table is converted from
 [`chinese-opendesktop/cin-tables`](https://github.com/chinese-opendesktop/cin-tables/blob/master/boshiamy.cin).
 The table includes a non-commercial-use restriction from its source; see the
 provenance notice at the start of `Resources/bsm.txt`.
 
-## Version 0.1 scope
+## Current Status
 
-### Implemented
+- Version: `0.1.0`
+- Status: Pre-release
+- Release stage: Beta
+- Release identifier: `0.1.0-beta.1`
+- Platform: macOS `13+` on Apple Silicon
 
-- Native Apple Silicon executable.
-- InputMethodKit input controller and a custom native candidate bar.
-- Plain-text code table loader with normalized, case-insensitive roots.
-- Composition of roots up to five characters with inline marked text.
-- Exact-match candidate lookup with nine candidates per page.
-- Arrow keys move candidate selection; `Page Up` and `Page Down` change pages.
-- Mouse-selectable candidates and page controls in one integrated candidate bar.
-- `Space` or `Enter` to commit the selected candidate.
-- Number keys `1` through `9` to select a candidate from the current page.
-- `Backspace` to remove the last root.
-- `Escape` to cancel composition.
-- `Shift + Space` to switch between Chinese and direct English input, including
-  terminal clients such as iTerm2, Ghostty, and the VS Code integrated terminal.
-- Punctuation and symbol input exclusively through code-table roots such as
-  `.s`, `,s`, `[[`, and `]]`; there are no hard-coded punctuation conversions.
-- Personal code table at `~/Library/Application Support/OpenBSM/user.txt`.
-- Root-code reverse lookup for selected text with `Option + Shift + R`.
-- Input menu item for switching Chinese and English modes.
-- Unit tests for table parsing and the input state machine.
-- Local build and per-user installation scripts.
+Release history is tracked in [CHANGELOG.md](CHANGELOG.md)。
+The release process is documented in [Release Workflow](docs/workflows/release.md)。
 
-### Remaining before the first public release
+The current version scope and release criteria are documented in
+[v0.1.0 Release Scope](docs/release/v0.1.0.md).
 
-- Validate behavior in additional apps such as Safari and Microsoft Office.
-- Add an original app icon.
-- Add Developer ID signing, notarization, and a distributable installer.
-- Add a settings window for shortcuts and table management.
+## Future features
 
-## Planned features
-
-- Candidate frequency learning.
 - Wildcard and fuzzy lookup.
-- Full-width and half-width modes.
 - User dictionary import, export, and backup.
-- Per-app Chinese or English mode memory.
 - Optional iCloud dictionary synchronization.
 
 ## Requirements
@@ -114,16 +95,62 @@ OpenBSM starts in Chinese mode. Type a root sequence and select a candidate:
 - `Shift + Space` switches between Chinese and direct English input. The hot
   key is registered only while OpenBSM is active and does not require Input
   Monitoring or Accessibility permission.
+- `Control + Shift + Space` switches between half-width and full-width input.
+
+### Chinese and English mode memory
+
+Open the input-method menu and choose **中英文模式記憶：依 App** or
+**中英文模式記憶：所有 App 共用** to toggle the memory scope. Per-app memory
+is the default and identifies each app by its bundle identifier. Both settings
+persist across app and input-method restarts. When switching settings, the
+active app's current mode is retained.
+
+### Character width
+
+Open the input-method menu and choose **字元寬度：半型** or **字元寬度：全型**
+to toggle the current width. Character width is shared by all apps, persists
+across input-method restarts, and defaults to half-width. Switching with
+`Control + Shift + Space` briefly shows **半** or **全** near the insertion
+point. The candidate bar also shows **全** while full-width mode is active.
+
+Full-width mode converts directly entered printable ASCII characters to their
+Unicode full-width equivalents, including `Space`. Code-table roots, candidate
+selection keys, navigation keys, and shortcuts are not converted.
+
+### Candidate bar theme
+
+Open the input-method menu and choose **切換為淺色候選列** or
+**切換為深色候選列**. The current selection is saved and applied to both the
+candidate bar and root-code reverse lookup bar. OpenBSM starts in dark mode by
+default.
+
+### Candidate frequency learning
+
+When a candidate is committed with `Space`, `Enter`, a number key, or a mouse
+click, OpenBSM records its usage for the current root. Candidates are ordered by
+usage count, then by the most recent selection, while unlearned candidates keep
+their original code-table order. Learning data is stored locally at:
+
+```text
+~/Library/Application Support/OpenBSM/frequency.json
+```
+
+Writes are debounced and atomic. Reloading the personal code table removes
+learning records that no longer exist in the merged bundled and personal table.
+If the same root and candidate still exist in the bundled table, their learning
+record is preserved. Choose **重置候選字學習…** from the input-method menu and
+confirm the warning to delete all learning history.
 
 ASCII letters are accepted as roots even before an exact candidate exists. A
 non-letter ASCII character is accepted only when the current root remains a
 prefix of at least one code-table entry. Other characters pass through to the
 current app without committing or cancelling an active composition.
 
-Punctuation and symbols follow exactly the same lookup path as Chinese
-characters. For example, type `.s` and press `Space` to commit `♠`. OpenBSM does
-not automatically transform `!` into `！` or provide a separate punctuation
-mode; add or modify mappings in `Resources/bsm.txt` instead.
+Punctuation and symbols first follow the same lookup path as Chinese
+characters. For example, type `.s` and press `Space` to commit `♠`. In
+full-width mode, directly entered ASCII punctuation that is not handled as a
+code-table root is converted to its full-width equivalent. Add or modify root
+mappings in `Resources/bsm.txt` to customize code-table punctuation.
 
 ## Personal code table
 
@@ -227,7 +254,4 @@ analytics, or telemetry.
 
 ## Roadmap
 
-### AI integration
-
-- 詞語級聯想
-- 錯誤/模糊輸入的智慧修正
+- [AI Assistant](docs/specification/ai-assistant/README.md) — Proposed

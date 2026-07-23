@@ -3,6 +3,124 @@ import Carbon
 @preconcurrency import InputMethodKit
 import OpenBSMCore
 
+@MainActor
+private final class InputHotKeyManager {
+    static let shared = InputHotKeyManager()
+
+    private weak var activeController: InputController?
+    private var inputModeHotKey: EventHotKeyRef?
+    private var characterWidthHotKey: EventHotKeyRef?
+    private var eventHandler: EventHandlerRef?
+
+    func activate(_ controller: InputController) {
+        activeController = controller
+        guard inputModeHotKey == nil,
+              characterWidthHotKey == nil,
+              eventHandler == nil else { return }
+
+        var eventType = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: UInt32(kEventHotKeyPressed)
+        )
+        let handlerStatus = InstallEventHandler(
+            GetApplicationEventTarget(),
+            { _, event, userData in
+                guard let event, let userData else { return OSStatus(eventNotHandledErr) }
+                var hotKeyID = EventHotKeyID()
+                let parameterStatus = GetEventParameter(
+                    event,
+                    EventParamName(kEventParamDirectObject),
+                    EventParamType(typeEventHotKeyID),
+                    nil,
+                    MemoryLayout<EventHotKeyID>.size,
+                    nil,
+                    &hotKeyID
+                )
+                guard parameterStatus == noErr else { return parameterStatus }
+                let manager = Unmanaged<InputHotKeyManager>
+                    .fromOpaque(userData)
+                    .takeUnretainedValue()
+                return MainActor.assumeIsolated {
+                    manager.handleHotKey(id: hotKeyID.id)
+                }
+            },
+            1,
+            &eventType,
+            Unmanaged.passUnretained(self).toOpaque(),
+            &eventHandler
+        )
+        guard handlerStatus == noErr else {
+            NSLog("OpenBSM failed to install mode hot key handler: %d", handlerStatus)
+            return
+        }
+
+        let inputModeStatus = RegisterEventHotKey(
+            UInt32(kVK_Space),
+            UInt32(shiftKey),
+            EventHotKeyID(signature: OSType(0x4F42534D), id: 1),
+            GetApplicationEventTarget(),
+            0,
+            &inputModeHotKey
+        )
+        guard inputModeStatus == noErr else {
+            NSLog("OpenBSM failed to register input mode hot key: %d", inputModeStatus)
+            unregister()
+            return
+        }
+
+        let characterWidthStatus = RegisterEventHotKey(
+            UInt32(kVK_Space),
+            UInt32(controlKey | shiftKey),
+            EventHotKeyID(signature: OSType(0x4F42534D), id: 2),
+            GetApplicationEventTarget(),
+            0,
+            &characterWidthHotKey
+        )
+        guard characterWidthStatus == noErr else {
+            NSLog("OpenBSM failed to register character width hot key: %d", characterWidthStatus)
+            unregister()
+            return
+        }
+    }
+
+    func deactivate(_ controller: InputController) {
+        guard activeController === controller else { return }
+        activeController = nil
+        unregister()
+    }
+
+    private func handleHotKey(id: UInt32) -> OSStatus {
+        guard let activeController else {
+            return OSStatus(eventNotHandledErr)
+        }
+        switch id {
+        case 1:
+            activeController.toggleInputMode()
+            return noErr
+        case 2:
+            activeController.toggleCharacterWidth()
+            return noErr
+        default:
+            return OSStatus(eventNotHandledErr)
+        }
+    }
+
+    private func unregister() {
+        if let inputModeHotKey {
+            UnregisterEventHotKey(inputModeHotKey)
+            self.inputModeHotKey = nil
+        }
+        if let characterWidthHotKey {
+            UnregisterEventHotKey(characterWidthHotKey)
+            self.characterWidthHotKey = nil
+        }
+        if let eventHandler {
+            RemoveEventHandler(eventHandler)
+            self.eventHandler = nil
+        }
+    }
+}
+
 @objc(OpenBSMInputController)
 final class InputController: IMKInputController, @unchecked Sendable {
     private static let userTableDirectoryName = "OpenBSM"
@@ -10,14 +128,17 @@ final class InputController: IMKInputController, @unchecked Sendable {
     private static let userTableDidReload = Notification.Name("OpenBSMUserTableDidReload")
 
     private let bundledCodeTable: CodeTable
+    private let inputModeMemory = InputModeMemory()
+    private let characterWidthPreference = CharacterWidthPreference()
+    private let clientBundleIdentifier: String?
     private var codeTable: CodeTable
     private var engine: InputEngine
     private var reverseLookupCharacter: String?
     private var reverseLookupCodes: [String] = []
     private var reverseLookupCodeIndex = 0
-    private var modeToggleHotKey: EventHotKeyRef?
-    private var modeToggleHotKeyHandler: EventHandlerRef?
     private var candidateBar: CandidateBar { sharedCandidateBar }
+    private var characterWidthIndicator: CharacterWidthIndicator { sharedCharacterWidthIndicator }
+    private var candidateFrequencyStore: CandidateFrequencyStore { sharedCandidateFrequencyStore }
 
     override init!(server: IMKServer!, delegate: Any!, client inputClient: Any!) {
         let bundledTable: CodeTable
@@ -29,9 +150,17 @@ final class InputController: IMKInputController, @unchecked Sendable {
         }
         let table = bundledTable.merging(Self.loadUserTable(), otherCandidatesFirst: true)
         bundledCodeTable = bundledTable
+        clientBundleIdentifier = (inputClient as? any IMKTextInput)?.bundleIdentifier()
         codeTable = table
         engine = InputEngine(codeTable: table)
+        if inputModeMemory.isEnglishMode(for: clientBundleIdentifier) {
+            _ = engine.handle(.toggleInputMode)
+        }
         super.init(server: server, delegate: delegate, client: inputClient)
+        MainActor.assumeIsolated {
+            candidateFrequencyStore.prune(to: codeTable)
+        }
+        rebuildEngine()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(reloadUserTableNotification(_:)),
@@ -48,6 +177,11 @@ final class InputController: IMKInputController, @unchecked Sendable {
         guard event.type == .keyDown else { return false }
 
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let shortcutModifiers = modifiers.intersection([.command, .control, .option, .shift])
+        if event.keyCode == 49, shortcutModifiers == [.control, .shift] {
+            toggleCharacterWidth()
+            return true
+        }
         if isReverseLookupShortcut(event, modifiers: modifiers) {
             showReverseLookup(client: sender)
             return true
@@ -67,11 +201,34 @@ final class InputController: IMKInputController, @unchecked Sendable {
             return false
         }
 
-        if event.keyCode == 49, modifiers.contains(.shift) {
+        if event.keyCode == 49, shortcutModifiers == [.shift] {
             if !engine.buffer.isEmpty {
                 commitComposition(sender)
             }
             apply(engine.handle(.toggleInputMode), client: sender)
+            return true
+        }
+
+        if event.keyCode == 48 {
+            NSLog(
+                "OpenBSM Tab diagnostic: english=%d bufferLength=%d candidates=%d textInputClient=%d clientType=%@",
+                engine.isEnglishMode ? 1 : 0,
+                engine.buffer.count,
+                engine.candidates.count,
+                sender is any NSTextInputClient ? 1 : 0,
+                String(describing: type(of: sender))
+            )
+        }
+
+        if event.keyCode == 48, !engine.isEnglishMode, engine.candidates.isEmpty {
+            if !engine.buffer.isEmpty {
+                commitComposition(sender)
+                updateComposition()
+            }
+            guard let textInputClient = sender as? any NSTextInputClient else {
+                return false
+            }
+            textInputClient.doCommand(by: #selector(NSResponder.insertTab(_:)))
             return true
         }
 
@@ -113,8 +270,10 @@ final class InputController: IMKInputController, @unchecked Sendable {
         }
 
         guard let command else { return false }
-        let result = engine.handle(command)
-        guard result != .passThrough else { return false }
+        let result = handleEngineCommand(command)
+        if result == .passThrough {
+            return insertFullWidthTextIfNeeded(from: event, client: sender)
+        }
         apply(result, client: sender)
         return true
     }
@@ -129,11 +288,18 @@ final class InputController: IMKInputController, @unchecked Sendable {
 
     override func activateServer(_ sender: Any!) {
         super.activateServer(sender)
-        registerModeToggleHotKey()
+        rebuildEngine()
+        restoreInputMode()
+        MainActor.assumeIsolated {
+            InputHotKeyManager.shared.activate(self)
+        }
     }
 
     override func deactivateServer(_ sender: Any!) {
-        unregisterModeToggleHotKey()
+        MainActor.assumeIsolated {
+            InputHotKeyManager.shared.deactivate(self)
+            characterWidthIndicator.hide()
+        }
         if !engine.buffer.isEmpty {
             commitComposition(sender)
         }
@@ -147,7 +313,11 @@ final class InputController: IMKInputController, @unchecked Sendable {
     }
 
     override func inputControllerWillClose() {
-        unregisterModeToggleHotKey()
+        MainActor.assumeIsolated {
+            InputHotKeyManager.shared.deactivate(self)
+            characterWidthIndicator.hide()
+            candidateFrequencyStore.flush()
+        }
         hideCandidates()
         super.inputControllerWillClose()
     }
@@ -158,6 +328,40 @@ final class InputController: IMKInputController, @unchecked Sendable {
         let item = NSMenuItem(title: title, action: #selector(toggleInputMode(_:)), keyEquivalent: "")
         item.target = self
         menu.addItem(item)
+
+        let widthTitle = characterWidthPreference.current == .halfWidth
+            ? "字元寬度：半型"
+            : "字元寬度：全型"
+        let widthItem = NSMenuItem(
+            title: widthTitle,
+            action: #selector(toggleCharacterWidth(_:)),
+            keyEquivalent: ""
+        )
+        widthItem.target = self
+        menu.addItem(widthItem)
+
+        let themeTitle = CandidateBarTheme.current == .dark
+            ? "切換為淺色候選列"
+            : "切換為深色候選列"
+        let themeItem = NSMenuItem(
+            title: themeTitle,
+            action: #selector(toggleCandidateBarTheme(_:)),
+            keyEquivalent: ""
+        )
+        themeItem.target = self
+        menu.addItem(themeItem)
+        menu.addItem(.separator())
+
+        let memoryTitle = inputModeMemory.scope == .perApplication
+            ? "中英文模式記憶：依 App"
+            : "中英文模式記憶：所有 App 共用"
+        let memoryItem = NSMenuItem(
+            title: memoryTitle,
+            action: #selector(toggleInputModeMemoryScope(_:)),
+            keyEquivalent: ""
+        )
+        memoryItem.target = self
+        menu.addItem(memoryItem)
         menu.addItem(.separator())
 
         let editUserTableItem = NSMenuItem(
@@ -175,15 +379,51 @@ final class InputController: IMKInputController, @unchecked Sendable {
         )
         reloadUserTableItem.target = self
         menu.addItem(reloadUserTableItem)
+
+        let resetFrequencyItem = NSMenuItem(
+            title: "重置候選字學習…",
+            action: #selector(resetCandidateFrequency(_:)),
+            keyEquivalent: ""
+        )
+        resetFrequencyItem.target = self
+        menu.addItem(resetFrequencyItem)
         return menu
     }
 
-    @objc private func toggleInputMode(_ sender: Any?) {
+    @objc fileprivate func toggleInputMode(_ sender: Any? = nil) {
         let inputClient = client()
         if !engine.buffer.isEmpty {
             commitComposition(inputClient)
         }
         apply(engine.handle(.toggleInputMode), client: inputClient)
+    }
+
+    @objc private func toggleInputModeMemoryScope(_ sender: Any?) {
+        let scope: InputModeMemoryScope = inputModeMemory.scope == .perApplication
+            ? .global
+            : .perApplication
+        inputModeMemory.selectScope(
+            scope,
+            currentIsEnglish: engine.isEnglishMode,
+            bundleIdentifier: clientBundleIdentifier
+        )
+    }
+
+    @objc fileprivate func toggleCharacterWidth(_ sender: Any? = nil) {
+        let width: CharacterWidth = characterWidthPreference.current == .halfWidth
+            ? .fullWidth
+            : .halfWidth
+        selectCharacterWidth(width)
+    }
+
+    @objc fileprivate func toggleCandidateBarTheme(_ sender: Any? = nil) {
+        let theme: CandidateBarTheme = CandidateBarTheme.current == .dark
+            ? .light
+            : .dark
+        Task { @MainActor [weak self] in
+            CandidateBarTheme.select(theme)
+            self?.candidateBar.selectTheme(theme)
+        }
     }
 
     @objc private func editUserTable(_ sender: Any?) {
@@ -195,6 +435,25 @@ final class InputController: IMKInputController, @unchecked Sendable {
         NotificationCenter.default.post(name: Self.userTableDidReload, object: nil)
     }
 
+    @objc private func resetCandidateFrequency(_ sender: Any?) {
+        let shouldReset = MainActor.assumeIsolated {
+            let alert = NSAlert()
+            alert.messageText = "重置候選字學習？"
+            alert.informativeText = "所有候選字的使用次數與最近使用紀錄都會被刪除。"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "重置")
+            alert.addButton(withTitle: "取消")
+            return alert.runModal() == .alertFirstButtonReturn
+        }
+        guard shouldReset else { return }
+
+        MainActor.assumeIsolated {
+            candidateFrequencyStore.reset()
+        }
+        rebuildEngine()
+        hideCandidates()
+    }
+
     @objc private func reloadUserTableNotification(_ notification: Notification) {
         let inputClient = client()
         if !engine.buffer.isEmpty {
@@ -203,10 +462,10 @@ final class InputController: IMKInputController, @unchecked Sendable {
 
         let isEnglishMode = engine.isEnglishMode
         codeTable = bundledCodeTable.merging(Self.loadUserTable(), otherCandidatesFirst: true)
-        engine = InputEngine(codeTable: codeTable)
-        if isEnglishMode {
-            _ = engine.handle(.toggleInputMode)
+        MainActor.assumeIsolated {
+            candidateFrequencyStore.prune(to: codeTable)
         }
+        rebuildEngine(preservingEnglishMode: isEnglishMode)
         hideCandidates()
     }
 
@@ -248,55 +507,6 @@ final class InputController: IMKInputController, @unchecked Sendable {
             .appendingPathComponent(userTableFileName, isDirectory: false)
     }
 
-    private func registerModeToggleHotKey() {
-        guard modeToggleHotKey == nil, modeToggleHotKeyHandler == nil else { return }
-
-        var eventType = EventTypeSpec(
-            eventClass: OSType(kEventClassKeyboard),
-            eventKind: UInt32(kEventHotKeyPressed)
-        )
-        let handlerStatus = InstallEventHandler(
-            GetApplicationEventTarget(),
-            { _, _, userData in
-                guard let userData else { return OSStatus(eventNotHandledErr) }
-                let controller = Unmanaged<InputController>.fromOpaque(userData).takeUnretainedValue()
-                controller.toggleInputMode(nil)
-                return noErr
-            },
-            1,
-            &eventType,
-            Unmanaged.passUnretained(self).toOpaque(),
-            &modeToggleHotKeyHandler
-        )
-        guard handlerStatus == noErr else { return }
-
-        let hotKeyID = EventHotKeyID(signature: OSType(0x4F42534D), id: 1)
-        let hotKeyStatus = RegisterEventHotKey(
-            UInt32(kVK_Space),
-            UInt32(shiftKey),
-            hotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &modeToggleHotKey
-        )
-        guard hotKeyStatus == noErr else {
-            RemoveEventHandler(modeToggleHotKeyHandler)
-            modeToggleHotKeyHandler = nil
-            return
-        }
-    }
-
-    private func unregisterModeToggleHotKey() {
-        if let modeToggleHotKey {
-            UnregisterEventHotKey(modeToggleHotKey)
-            self.modeToggleHotKey = nil
-        }
-        if let modeToggleHotKeyHandler {
-            RemoveEventHandler(modeToggleHotKeyHandler)
-            self.modeToggleHotKeyHandler = nil
-        }
-    }
-
     private func apply(_ result: InputResult, client sender: Any?) {
         switch result {
         case .passThrough:
@@ -314,13 +524,83 @@ final class InputController: IMKInputController, @unchecked Sendable {
             updateComposition()
             hideCandidates()
 
-        case .modeChanged:
+        case .modeChanged(let isEnglish):
+            inputModeMemory.setEnglishMode(isEnglish, for: clientBundleIdentifier)
             hideCandidates()
         }
     }
 
+    private func restoreInputMode() {
+        let isEnglishMode = inputModeMemory.isEnglishMode(for: clientBundleIdentifier)
+        guard engine.isEnglishMode != isEnglishMode else { return }
+        if !engine.buffer.isEmpty {
+            commitComposition(client())
+        }
+        apply(engine.handle(.toggleInputMode), client: client())
+    }
+
+    private func handleEngineCommand(_ command: InputCommand) -> InputResult {
+        let code = engine.buffer
+        let candidates = engine.candidates
+        let result = engine.handle(command)
+        guard case .commit(let candidate) = result,
+              learnCandidate(candidate, for: code, candidates: candidates) else {
+            return result
+        }
+        rebuildEngine()
+        return result
+    }
+
+    private func learnCandidate(
+        _ candidate: String,
+        for code: String,
+        candidates: [String]
+    ) -> Bool {
+        guard !code.isEmpty, candidates.contains(candidate) else { return false }
+        MainActor.assumeIsolated {
+            candidateFrequencyStore.record(code: code, candidate: candidate)
+        }
+        return true
+    }
+
+    private func rebuildEngine(preservingEnglishMode: Bool? = nil) {
+        let isEnglishMode = preservingEnglishMode ?? engine.isEnglishMode
+        let frequency = MainActor.assumeIsolated {
+            candidateFrequencyStore.snapshot
+        }
+        engine = InputEngine(codeTable: codeTable, candidateFrequency: frequency)
+        if isEnglishMode {
+            _ = engine.handle(.toggleInputMode)
+        }
+    }
+
+    private func selectCharacterWidth(_ width: CharacterWidth) {
+        characterWidthPreference.current = width
+        MainActor.assumeIsolated {
+            candidateBar.selectCharacterWidth(width)
+            guard let inputClient = client() else { return }
+            characterWidthIndicator.show(width: width, client: inputClient)
+        }
+    }
+
+    private func insertFullWidthTextIfNeeded(from event: NSEvent, client sender: Any?) -> Bool {
+        guard characterWidthPreference.current == .fullWidth,
+              let text = event.characters,
+              !text.isEmpty else {
+            return false
+        }
+        let transformedText = CharacterWidth.fullWidth.transform(text)
+        guard transformedText != text else { return false }
+        insert(transformedText, client: sender)
+        return true
+    }
+
     private func commit(_ text: String, client sender: Any?) {
+        let didLearn = learnCandidate(text, for: engine.buffer, candidates: engine.candidates)
         engine.reset()
+        if didLearn {
+            rebuildEngine()
+        }
         insert(text, client: sender)
         hideCandidates()
     }
@@ -441,19 +721,20 @@ final class InputController: IMKInputController, @unchecked Sendable {
                     selectedIndex: selectedCandidateIndex,
                     currentPage: currentPage,
                     totalPages: totalPages,
+                    characterWidth: characterWidthPreference.current,
                     client: inputClient,
                     onCandidateSelected: { [weak self] index in
                         guard let self else { return }
                         let pageStart = self.engine.selectedCandidateIndex
                             - self.engine.selectedCandidateIndexInPage
-                        let result = self.engine.handle(
+                        let result = self.handleEngineCommand(
                             .selectCandidate(pageStart + index)
                         )
                         self.apply(result, client: self.client())
                     },
                     onPageChanged: { [weak self] offset in
                         guard let self else { return }
-                        let result = self.engine.handle(.movePage(offset))
+                        let result = self.handleEngineCommand(.movePage(offset))
                         self.apply(result, client: self.client())
                     }
                 )
