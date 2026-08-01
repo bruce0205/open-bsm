@@ -512,6 +512,9 @@ final class InputController: IMKInputController, @unchecked Sendable {
         case .passThrough:
             break
 
+        case .rejectedInput:
+            NSSound.beep()
+
         case .composing:
             updateComposition()
             updateCandidates()
@@ -737,6 +740,12 @@ final class InputController: IMKInputController, @unchecked Sendable {
                         let result = self.handleEngineCommand(.movePage(offset))
                         self.apply(result, client: self.client())
                     }
+                )
+            } else if !engine.buffer.isEmpty {
+                candidateBar.showMessage(
+                    owner: self,
+                    message: "查無此字根：\(engine.buffer)",
+                    client: inputClient
                 )
             } else {
                 candidateBar.hide(owner: self)

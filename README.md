@@ -86,12 +86,15 @@ ID certificate and Apple notarization.
 OpenBSM starts in Chinese mode. Type a root sequence and select a candidate:
 
 - `Space` or `Enter` commits the highlighted candidate. If the root has no
-  exact match, it commits the root text itself.
+  exact match, the composition remains active until you correct it with
+  `Backspace` or cancel it with `Escape`.
 - `Left Arrow` or `Up Arrow` selects the previous candidate.
 - `Right Arrow` or `Down Arrow` selects the next candidate.
 - `Page Up` and `Page Down` move between candidate pages.
 - Number keys `1` through `9` select a visible candidate directly.
 - `Backspace` removes the last root; `Escape` cancels the composition.
+- Root input is limited to five characters. Additional letters are ignored
+  with a system alert sound.
 - `Shift + Space` switches between Chinese and direct English input. The hot
   key is registered only while OpenBSM is active and does not require Input
   Monitoring or Accessibility permission.

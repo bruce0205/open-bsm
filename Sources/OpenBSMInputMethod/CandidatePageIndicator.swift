@@ -160,6 +160,7 @@ final class CandidateBar {
     private let pageLabel: NSTextField
     private let widthIndicatorLabel: NSTextField
     private let nextPageButton: CandidatePageButton
+    private let messageLabel: CandidateTextField
     private let reverseLookupView: ReverseLookupView
 
     private weak var owner: AnyObject?
@@ -169,6 +170,7 @@ final class CandidateBar {
     private var currentPage = 0
     private var totalPages = 0
     private var displaysPagination = false
+    private var isShowingMessage = false
     private var isShowingReverseLookup = false
     private var lastAnchor: (rect: NSRect, isHorizontal: Bool)?
     private var revision = 0
@@ -181,6 +183,7 @@ final class CandidateBar {
             nextPageButton.apply(theme: theme)
             pageLabel.textColor = theme.secondaryTextColor
             widthIndicatorLabel.textColor = theme.mutedTextColor
+            messageLabel.textColor = theme.primaryTextColor
             reverseLookupView.apply(theme: theme)
         }
     }
@@ -204,6 +207,7 @@ final class CandidateBar {
             symbolName: "chevron.right",
             accessibilityLabel: "下一頁"
         )
+        let messageLabel = CandidateTextField(labelWithString: "")
         let reverseLookupView = ReverseLookupView(frame: .zero)
 
         backgroundView.autoresizingMask = [.width, .height]
@@ -220,6 +224,13 @@ final class CandidateBar {
         widthIndicatorLabel.isHidden = true
         widthIndicatorLabel.setAccessibilityLabel("全型模式")
 
+        messageLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        messageLabel.cell = VerticallyCenteredTextFieldCell(textCell: "")
+        messageLabel.textColor = theme.primaryTextColor
+        messageLabel.lineBreakMode = .byTruncatingTail
+        messageLabel.isHidden = true
+        messageLabel.setAccessibilityLabel("輸入提示")
+
         for candidateView in candidateViews {
             backgroundView.addSubview(candidateView)
         }
@@ -227,6 +238,7 @@ final class CandidateBar {
         backgroundView.addSubview(widthIndicatorLabel)
         backgroundView.addSubview(previousPageButton)
         backgroundView.addSubview(nextPageButton)
+        backgroundView.addSubview(messageLabel)
         backgroundView.addSubview(reverseLookupView)
         reverseLookupView.isHidden = true
 
@@ -259,6 +271,7 @@ final class CandidateBar {
         self.pageLabel = pageLabel
         self.widthIndicatorLabel = widthIndicatorLabel
         self.nextPageButton = nextPageButton
+        self.messageLabel = messageLabel
         self.reverseLookupView = reverseLookupView
 
         for candidateView in candidateViews {
@@ -302,6 +315,8 @@ final class CandidateBar {
         self.currentPage = currentPage
         self.totalPages = totalPages
         displaysPagination = totalPages > 1
+        isShowingMessage = false
+        messageLabel.isHidden = true
         isShowingReverseLookup = false
         reverseLookupView.isHidden = true
         widthIndicatorLabel.isHidden = characterWidth != .fullWidth
@@ -342,6 +357,44 @@ final class CandidateBar {
         }
     }
 
+    func showMessage(
+        owner: AnyObject,
+        message: String,
+        client: any IMKTextInput
+    ) {
+        selectTheme(.current)
+
+        if self.owner !== owner {
+            lastAnchor = nil
+            panel.orderOut(nil)
+        }
+
+        self.owner = owner
+        inputClient = client
+        onCandidateSelected = nil
+        onPageChanged = nil
+        currentPage = 0
+        totalPages = 0
+        displaysPagination = false
+        isShowingMessage = true
+        isShowingReverseLookup = false
+        widthIndicatorLabel.isHidden = true
+        messageLabel.stringValue = message
+        messageLabel.setAccessibilityValue(message)
+        messageLabel.isHidden = false
+        reverseLookupView.isHidden = true
+        revision += 1
+
+        for candidateView in candidateViews {
+            candidateView.isHidden = true
+        }
+        previousPageButton.isHidden = true
+        pageLabel.isHidden = true
+        nextPageButton.isHidden = true
+
+        synchronizeFrame()
+    }
+
     func showReverseLookup(
         owner: AnyObject,
         character: String,
@@ -365,6 +418,8 @@ final class CandidateBar {
         self.currentPage = currentPage
         self.totalPages = totalPages
         displaysPagination = false
+        isShowingMessage = false
+        messageLabel.isHidden = true
         isShowingReverseLookup = true
         widthIndicatorLabel.isHidden = true
         revision += 1
@@ -404,6 +459,8 @@ final class CandidateBar {
         currentPage = 0
         totalPages = 0
         displaysPagination = false
+        isShowingMessage = false
+        messageLabel.isHidden = true
         isShowingReverseLookup = false
         reverseLookupView.isHidden = true
         widthIndicatorLabel.isHidden = true
@@ -475,6 +532,28 @@ final class CandidateBar {
                     width: Metrics.reverseLookupWidth,
                     height: Metrics.reverseLookupHeight
                 ),
+                itemWidths: [],
+                pageLabelWidth: 0
+            )
+        }
+
+        if isShowingMessage {
+            let messageWidth = ceil(
+                messageLabel.intrinsicContentSize.width
+            )
+            let maximumWidth = max(
+                1,
+                min(
+                    Metrics.maximumBarWidth,
+                    screen.visibleFrame.width - Metrics.screenInset * 2
+                )
+            )
+            let width = min(
+                (Metrics.horizontalInset * 2 + messageWidth) * 1.15,
+                maximumWidth
+            )
+            return Layout(
+                size: NSSize(width: ceil(width), height: Metrics.height),
                 itemWidths: [],
                 pageLabelWidth: 0
             )
@@ -555,6 +634,16 @@ final class CandidateBar {
     private func layoutContent(using layout: Layout) {
         if isShowingReverseLookup {
             reverseLookupView.frame = backgroundView.bounds
+            return
+        }
+
+        if isShowingMessage {
+            messageLabel.frame = NSRect(
+                x: Metrics.horizontalInset,
+                y: Metrics.verticalInset,
+                width: max(backgroundView.bounds.width - Metrics.horizontalInset * 2, 0),
+                height: Metrics.itemHeight
+            )
             return
         }
 

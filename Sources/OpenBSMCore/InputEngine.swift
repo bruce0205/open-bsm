@@ -14,6 +14,7 @@ public enum InputCommand: Equatable, Sendable {
 
 public enum InputResult: Equatable, Sendable {
     case passThrough
+    case rejectedInput
     case composing(text: String, candidates: [String])
     case commit(String)
     case cancelComposition
@@ -115,9 +116,10 @@ public struct InputEngine: Sendable {
             return .passThrough
         }
 
-        guard isCodeCharacter(character), buffer.count < maximumCodeLength else {
+        guard isCodeCharacter(character) else {
             return .passThrough
         }
+        guard buffer.count < maximumCodeLength else { return .rejectedInput }
         buffer.append(contentsOf: character.lowercased())
         return refreshCandidates()
     }
@@ -143,7 +145,10 @@ public struct InputEngine: Sendable {
 
     private mutating func commitFirstCandidate() -> InputResult {
         guard !buffer.isEmpty else { return .passThrough }
-        return commit(selectedCandidate ?? buffer)
+        guard let selectedCandidate else {
+            return .composing(text: buffer, candidates: candidates)
+        }
+        return commit(selectedCandidate)
     }
 
     private var selectedCandidate: String? {

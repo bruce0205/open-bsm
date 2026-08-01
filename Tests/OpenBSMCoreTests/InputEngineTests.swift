@@ -176,6 +176,34 @@ private func makeEngine(candidateCount: Int) -> InputEngine {
     #expect(engine.handle(.backspace) == .cancelComposition)
 }
 
+@Test func unmatchedCodeRemainsComposingUntilCorrectedOrCancelled() {
+    let table = CodeTable(entries: ["sss": ["絑"]])
+    var engine = InputEngine(codeTable: table)
+
+    _ = engine.handle(.character("s"))
+    _ = engine.handle(.character("s"))
+    _ = engine.handle(.character("s"))
+    #expect(engine.handle(.character("s")) == .composing(text: "ssss", candidates: []))
+
+    #expect(engine.handle(.space) == .composing(text: "ssss", candidates: []))
+    #expect(engine.handle(.enter) == .composing(text: "ssss", candidates: []))
+    #expect(engine.buffer == "ssss")
+
+    #expect(engine.handle(.backspace) == .composing(text: "sss", candidates: ["絑"]))
+    #expect(engine.handle(.escape) == .cancelComposition)
+}
+
+@Test func rejectsCodeCharacterBeyondMaximumLength() {
+    var engine = InputEngine(codeTable: table, maximumCodeLength: 5)
+
+    for character in "abcde" {
+        _ = engine.handle(.character(character))
+    }
+
+    #expect(engine.handle(.character("f")) == .rejectedInput)
+    #expect(engine.buffer == "abcde")
+}
+
 @Test func englishModePassesCharactersThrough() {
     var engine = InputEngine(codeTable: table)
 
